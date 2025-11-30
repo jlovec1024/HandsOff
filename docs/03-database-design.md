@@ -458,7 +458,7 @@ var DefaultConfigs = []SystemConfig{
     {ConfigKey: "webhook_base_url", ConfigValue: "http://localhost:8080", ConfigType: "string", Description: "Webhook回调基础URL"},
     {ConfigKey: "default_fix_branch_prefix", ConfigValue: "ai-fix/", ConfigType: "string", Description: "自动修复分支前缀"},
     {ConfigKey: "snow_cli_path", ConfigValue: "snow", ConfigType: "string", Description: "Snow-CLI命令路径"},
-    {ConfigKey: "clone_base_path", ConfigValue: "/tmp/ai-codereview-workspace", ConfigType: "string", Description: "代码克隆基础路径"},
+    {ConfigKey: "clone_base_path", ConfigValue: "/tmp/handsoff-workspace", ConfigType: "string", Description: "代码克隆基础路径"},
     {ConfigKey: "max_concurrent_fix_tasks", ConfigValue: "3", ConfigType: "integer", Description: "最大并发修复任务数"},
     {ConfigKey: "notification_show_commits", ConfigValue: "true", ConfigType: "boolean", Description: "通知中是否展示commit信息"},
     {ConfigKey: "notification_show_score", ConfigValue: "true", ConfigType: "boolean", Description: "通知中是否展示评分"},
@@ -761,7 +761,7 @@ INSERT INTO system_configs (config_key, config_value, config_type, description) 
 ('webhook_base_url', 'http://localhost:8080', 'string', 'Webhook回调基础URL'),
 ('default_fix_branch_prefix', 'ai-fix/', 'string', '自动修复分支前缀'),
 ('snow_cli_path', 'snow', 'string', 'Snow-CLI命令路径'),
-('clone_base_path', '/tmp/ai-codereview-workspace', 'string', '代码克隆基础路径'),
+('clone_base_path', '/tmp/handsoff-workspace', 'string', '代码克隆基础路径'),
 ('max_concurrent_fix_tasks', '3', 'integer', '最大并发修复任务数'),
 ('notification_show_commits', 'true', 'boolean', '通知中是否展示commit信息'),
 ('notification_show_score', 'true', 'boolean', '通知中是否展示评分');

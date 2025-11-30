@@ -1,4 +1,4 @@
-# AI-Codereview-Gitlab
+# HandsOff（甩手掌柜）
 
 > AI 驱动的代码审查自动化系统
 
@@ -6,7 +6,7 @@
 
 > ⚠️ **项目状态**: 当前处于**设计阶段**，技术文档已完成，即将开始代码实现。
 
-AI-Codereview-Gitlab 是一个基于 **Go + React** 架构设计的代码审查自动化平台，通过集成多种 Git 平台（GitLab/GitHub/Gitea）和 AI 大语言模型（LLM），实现智能化的代码审查、修复建议生成以及自动修复功能。
+HandsOff（甩手掌柜） 是一个基于 **Go + React** 架构设计的代码审查自动化平台，通过集成多种 Git 平台（GitLab/GitHub/Gitea）和 AI 大语言模型（LLM），实现智能化的代码审查、修复建议生成以及自动修复功能。
 
 ### 核心特性
 
@@ -121,8 +121,8 @@ AI-Codereview-Gitlab 是一个基于 **Go + React** 架构设计的代码审查�
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-org/ai-codereview-gitlab.git
-cd ai-codereview-gitlab
+git clone https://github.com/jlovec1024/HandsOff.git
+cd handsoff
 
 # 2. 使用 Docker Compose 启动（推荐）
 docker-compose up -d
@@ -137,7 +137,7 @@ docker-compose up -d
 ## 📦 项目结构
 
 ```
-ai-codereview/
+handsoff/
 ├── cmd/                    # 应用入口
 │   ├── api/               # API 服务器
 │   ├── worker/            # 异步任务 Worker
@@ -317,7 +317,7 @@ ENCRYPTION_KEY=base64-encoded-key
 
 ## 💬 联系方式
 
-- Issue Tracker: [GitHub Issues](https://github.com/your-org/ai-codereview-gitlab/issues)
+- Issue Tracker: [GitHub Issues](https://github.com/jlovec1024/HandsOff/issues)
 - 文档: [docs/README.md](docs/README.md)
 
 ---

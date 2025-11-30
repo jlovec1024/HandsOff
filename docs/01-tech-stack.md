@@ -29,7 +29,7 @@
 ### 1.3 项目依赖 (go.mod)
 
 ```go
-module github.com/your-org/ai-codereview
+module github.com/your-org/handsoff
 
 go 1.21
 
@@ -93,7 +93,7 @@ require (
 
 ```json
 {
-  "name": "ai-codereview-web",
+  "name": "handsoff-web",
   "version": "1.0.0",
   "scripts": {
     "dev": "vite",
@@ -150,7 +150,7 @@ database:
   
   # SQLite配置
   sqlite:
-    path: "./data/ai-codereview.db"
+    path: "./data/handsoff.db"
   
   # MySQL配置
   mysql:
@@ -301,14 +301,14 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o ai-codereview ./cmd/server
+RUN go build -o handsoff ./cmd/server
 
 FROM alpine:latest
 WORKDIR /app
-COPY --from=builder /app/ai-codereview .
+COPY --from=builder /app/handsoff .
 COPY configs ./configs
 EXPOSE 8080
-CMD ["./ai-codereview"]
+CMD ["./handsoff"]
 ```
 
 ### 7.2 Docker Compose
@@ -348,7 +348,7 @@ services:
   
   asynq-worker:
     build: ./backend
-    command: ["./ai-codereview", "worker"]
+    command: ["./handsoff", "worker"]
     depends_on:
       - redis
 ```

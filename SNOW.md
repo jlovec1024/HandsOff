@@ -1,10 +1,10 @@
-# AI-Codereview-Gitlab
+# HandsOff（甩手掌柜）
 
 > AI-powered automated code review system for GitLab, GitHub, and Gitea
 
 ## Overview
 
-**AI-Codereview-Gitlab** is an intelligent code review automation platform that leverages Large Language Models (LLM) to perform automated code reviews during merge requests or code pushes. The system automatically triggers webhook events when developers submit code changes through GitLab merge requests or push events, invokes third-party AI models for code review, and publishes review results directly as comments on the corresponding Merge Request or Commit.
+**HandsOff（甩手掌柜）** is an intelligent code review automation platform that leverages Large Language Models (LLM) to perform automated code reviews during merge requests or code pushes. The system automatically triggers webhook events when developers submit code changes through GitLab merge requests or push events, invokes third-party AI models for code review, and publishes review results directly as comments on the corresponding Merge Request or Commit.
 
 **⚠️ Current Project Status: Design Phase**
 
@@ -63,7 +63,7 @@ This project is currently in the **design and planning phase**. A complete redes
 **Current Structure (Design Phase):**
 
 ```
-ai-codereview-gitlab/
+handsoff/
 ├── .git/                  # Fresh Git repository (no history)
 ├── .gitignore             # Go + React gitignore rules
 ├── LICENSE                # Apache License 2.0
@@ -83,7 +83,7 @@ ai-codereview-gitlab/
 **Planned Structure (Post-Implementation):**
 
 ```
-ai-codereview-gitlab/
+handsoff/
 ├── cmd/                   # Application entry points
 │   ├── api/              # API server (main)
 │   ├── worker/           # Async task worker
@@ -511,8 +511,8 @@ This project is licensed under the **Apache License 2.0** - see the [LICENSE](LI
 ## Contact & Resources
 
 - **Design Documentation:** [docs/README.md](docs/README.md)
-- **Original Repository:** https://github.com/sunmh207/AI-Codereview-Gitlab
-- **Issue Tracker:** [GitHub Issues](https://github.com/your-org/ai-codereview-gitlab/issues)
+- **Original Repository:** https://github.com/sunmh207/HandsOff（甩手掌柜）
+- **Issue Tracker:** [GitHub Issues](https://github.com/jlovec1024/HandsOff/issues)
 
 ---
 
