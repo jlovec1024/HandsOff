@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
-import { Modal, Table, Input, message, Spin } from 'antd';
-import type { TableColumnsType } from 'antd';
-import { repositoryApi } from '../../api/repository';
-import type { GitLabRepository } from '../../types';
+import { useState, useEffect } from "react";
+import { Modal, Table, Input, message, Spin } from "antd";
+import type { TableColumnsType } from "antd";
+import { repositoryApi } from "../../api/repository";
+import type { GitLabRepository } from "../../types";
 
 interface ImportModalProps {
   visible: boolean;
@@ -15,7 +15,9 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
   const [loading, setLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [importing, setImporting] = useState(false);
-  const [webhookURL, setWebhookURL] = useState('http://your-server.com/api/webhook');
+  const [webhookURL, setWebhookURL] = useState(
+    "http://your-server.com/api/webhook"
+  );
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 20,
@@ -31,17 +33,20 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
   const loadRepositories = async (page: number = 1) => {
     setLoading(true);
     try {
-      const response = await repositoryApi.listFromGitLab(page, pagination.pageSize);
+      const response = await repositoryApi.listFromGitLab(
+        page,
+        pagination.pageSize
+      );
       const { repositories: repos, total_pages } = response.data;
-      setRepositories(repos);
+      setRepositories(Array.isArray(repos) ? repos : []);
       setPagination((prev) => ({
         ...prev,
         current: page,
         total: total_pages * pagination.pageSize,
       }));
     } catch (error) {
-      console.error('Failed to load GitLab repositories:', error);
-      message.error('获取GitLab仓库列表失败');
+      console.error("Failed to load GitLab repositories:", error);
+      message.error("获取GitLab仓库列表失败");
     } finally {
       setLoading(false);
     }
@@ -49,12 +54,12 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
 
   const handleImport = async () => {
     if (selectedRowKeys.length === 0) {
-      message.warning('请至少选择一个仓库');
+      message.warning("请至少选择一个仓库");
       return;
     }
 
     if (!webhookURL) {
-      message.warning('请输入Webhook回调URL');
+      message.warning("请输入Webhook回调URL");
       return;
     }
 
@@ -66,7 +71,7 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
       setSelectedRowKeys([]);
       onSuccess();
     } catch (error) {
-      console.error('Failed to import repositories:', error);
+      console.error("Failed to import repositories:", error);
     } finally {
       setImporting(false);
     }
@@ -74,26 +79,26 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
 
   const columns: TableColumnsType<GitLabRepository> = [
     {
-      title: '仓库名称',
-      dataIndex: 'name',
-      key: 'name',
+      title: "仓库名称",
+      dataIndex: "name",
+      key: "name",
       render: (name: string, record: GitLabRepository) => (
         <div>
           <div style={{ fontWeight: 500 }}>{name}</div>
-          <div style={{ fontSize: 12, color: '#999' }}>{record.full_path}</div>
+          <div style={{ fontSize: 12, color: "#999" }}>{record.full_path}</div>
         </div>
       ),
     },
     {
-      title: '默认分支',
-      dataIndex: 'default_branch',
-      key: 'default_branch',
+      title: "默认分支",
+      dataIndex: "default_branch",
+      key: "default_branch",
       width: 120,
     },
     {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
+      title: "描述",
+      dataIndex: "description",
+      key: "description",
       ellipsis: true,
     },
   ];
@@ -121,7 +126,7 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
           onChange={(e) => setWebhookURL(e.target.value)}
           placeholder="http://your-server.com/api/webhook"
         />
-        <div style={{ marginTop: 4, fontSize: 12, color: '#999' }}>
+        <div style={{ marginTop: 4, fontSize: 12, color: "#999" }}>
           导入时将自动为每个仓库配置此Webhook URL
         </div>
       </div>

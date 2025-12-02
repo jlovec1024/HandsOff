@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Spin, message } from 'antd';
+import { useEffect, useState } from "react";
+import { Card, Row, Col, Statistic, Table, Tag, Spin, message } from "antd";
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -8,12 +8,12 @@ import {
   SecurityScanOutlined,
   ThunderboltOutlined,
   CodeOutlined,
-} from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
-import dayjs from 'dayjs';
-import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
-import './styles.css';
+} from "@ant-design/icons";
+import ReactECharts from "echarts-for-react";
+import dayjs from "dayjs";
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
+import "./styles.css";
 
 interface DashboardStats {
   total_reviews: number;
@@ -68,16 +68,16 @@ const Dashboard = () => {
     setLoading(true);
     try {
       const [statsRes, recentRes, trendsRes] = await Promise.all([
-        axios.get('/api/dashboard/statistics'),
-        axios.get('/api/dashboard/recent?limit=10'),
-        axios.get('/api/dashboard/trends?days=30'),
+        axios.get("/api/dashboard/statistics"),
+        axios.get("/api/dashboard/recent?limit=10"),
+        axios.get("/api/dashboard/trends?days=30"),
       ]);
 
       setStats(statsRes.data);
-      setRecentReviews(recentRes.data);
-      setTrends(trendsRes.data);
+      setRecentReviews(Array.isArray(recentRes.data) ? recentRes.data : []);
+      setTrends(Array.isArray(trendsRes.data) ? trendsRes.data : []);
     } catch (error) {
-      message.error('Failed to load dashboard data');
+      message.error("Failed to load dashboard data");
       console.error(error);
     } finally {
       setLoading(false);
@@ -86,51 +86,52 @@ const Dashboard = () => {
 
   const getStatusTag = (status: string) => {
     const statusMap: Record<string, { color: string; text: string }> = {
-      completed: { color: 'success', text: 'Completed' },
-      processing: { color: 'processing', text: 'Processing' },
-      pending: { color: 'default', text: 'Pending' },
-      failed: { color: 'error', text: 'Failed' },
+      completed: { color: "success", text: "Completed" },
+      processing: { color: "processing", text: "Processing" },
+      pending: { color: "default", text: "Pending" },
+      failed: { color: "error", text: "Failed" },
     };
-    const config = statusMap[status] || { color: 'default', text: status };
+    const config = statusMap[status] || { color: "default", text: status };
     return <Tag color={config.color}>{config.text}</Tag>;
   };
 
   const getScoreColor = (score: number) => {
-    if (score >= 80) return '#52c41a';
-    if (score >= 60) return '#faad14';
-    return '#f5222d';
+    if (score >= 80) return "#52c41a";
+    if (score >= 60) return "#faad14";
+    return "#f5222d";
   };
 
   const getTrendChartOption = () => {
+    if (!Array.isArray(trends) || trends.length === 0) return {};
     return {
-      title: { text: 'Review Trends (30 Days)', left: 'center' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['Reviews', 'Avg Score', 'Critical Issues'], bottom: 0 },
+      title: { text: "Review Trends (30 Days)", left: "center" },
+      tooltip: { trigger: "axis" },
+      legend: { data: ["Reviews", "Avg Score", "Critical Issues"], bottom: 0 },
       xAxis: {
-        type: 'category',
-        data: trends.map((t) => dayjs(t.date).format('MM-DD')),
+        type: "category",
+        data: trends.map((t) => dayjs(t.date).format("MM-DD")),
       },
       yAxis: [
-        { type: 'value', name: 'Count' },
-        { type: 'value', name: 'Score', max: 100 },
+        { type: "value", name: "Count" },
+        { type: "value", name: "Score", max: 100 },
       ],
       series: [
         {
-          name: 'Reviews',
-          type: 'bar',
+          name: "Reviews",
+          type: "bar",
           data: trends.map((t) => t.review_count),
         },
         {
-          name: 'Avg Score',
-          type: 'line',
+          name: "Avg Score",
+          type: "line",
           yAxisIndex: 1,
           data: trends.map((t) => t.average_score),
         },
         {
-          name: 'Critical Issues',
-          type: 'line',
+          name: "Critical Issues",
+          type: "line",
           data: trends.map((t) => t.critical_issues),
-          itemStyle: { color: '#f5222d' },
+          itemStyle: { color: "#f5222d" },
         },
       ],
     };
@@ -139,25 +140,41 @@ const Dashboard = () => {
   const getIssueDistributionOption = () => {
     if (!stats) return {};
     return {
-      title: { text: 'Issue Distribution', left: 'center' },
-      tooltip: { trigger: 'item' },
-      legend: { orient: 'vertical', left: 'left' },
+      title: { text: "Issue Distribution", left: "center" },
+      tooltip: { trigger: "item" },
+      legend: { orient: "vertical", left: "left" },
       series: [
         {
-          name: 'Issues',
-          type: 'pie',
-          radius: '50%',
+          name: "Issues",
+          type: "pie",
+          radius: "50%",
           data: [
-            { value: stats.critical_issues, name: 'Critical', itemStyle: { color: '#f5222d' } },
-            { value: stats.high_issues, name: 'High', itemStyle: { color: '#fa8c16' } },
-            { value: stats.medium_issues, name: 'Medium', itemStyle: { color: '#faad14' } },
-            { value: stats.low_issues, name: 'Low', itemStyle: { color: '#52c41a' } },
+            {
+              value: stats.critical_issues,
+              name: "Critical",
+              itemStyle: { color: "#f5222d" },
+            },
+            {
+              value: stats.high_issues,
+              name: "High",
+              itemStyle: { color: "#fa8c16" },
+            },
+            {
+              value: stats.medium_issues,
+              name: "Medium",
+              itemStyle: { color: "#faad14" },
+            },
+            {
+              value: stats.low_issues,
+              name: "Low",
+              itemStyle: { color: "#52c41a" },
+            },
           ],
           emphasis: {
             itemStyle: {
               shadowBlur: 10,
               shadowOffsetX: 0,
-              shadowColor: 'rgba(0, 0, 0, 0.5)',
+              shadowColor: "rgba(0, 0, 0, 0.5)",
             },
           },
         },
@@ -168,17 +185,17 @@ const Dashboard = () => {
   const getCategoryDistributionOption = () => {
     if (!stats) return {};
     return {
-      title: { text: 'Issue Category', left: 'center' },
-      tooltip: { trigger: 'item' },
+      title: { text: "Issue Category", left: "center" },
+      tooltip: { trigger: "item" },
       series: [
         {
-          name: 'Category',
-          type: 'pie',
-          radius: ['40%', '70%'],
+          name: "Category",
+          type: "pie",
+          radius: ["40%", "70%"],
           data: [
-            { value: stats.security_issues, name: 'Security' },
-            { value: stats.performance_issues, name: 'Performance' },
-            { value: stats.quality_issues, name: 'Quality' },
+            { value: stats.security_issues, name: "Security" },
+            { value: stats.performance_issues, name: "Performance" },
+            { value: stats.quality_issues, name: "Quality" },
           ],
         },
       ],
@@ -187,45 +204,45 @@ const Dashboard = () => {
 
   const columns = [
     {
-      title: 'Repository',
-      dataIndex: ['repository', 'name'],
-      key: 'repository',
+      title: "Repository",
+      dataIndex: ["repository", "name"],
+      key: "repository",
       render: (text: string) => <strong>{text}</strong>,
     },
     {
-      title: 'MR Title',
-      dataIndex: 'mr_title',
-      key: 'mr_title',
+      title: "MR Title",
+      dataIndex: "mr_title",
+      key: "mr_title",
       ellipsis: true,
     },
     {
-      title: 'Author',
-      dataIndex: 'mr_author',
-      key: 'mr_author',
+      title: "Author",
+      dataIndex: "mr_author",
+      key: "mr_author",
     },
     {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
+      title: "Status",
+      dataIndex: "status",
+      key: "status",
       render: getStatusTag,
     },
     {
-      title: 'Score',
-      dataIndex: 'score',
-      key: 'score',
+      title: "Score",
+      dataIndex: "score",
+      key: "score",
       render: (score: number) => (
-        <span style={{ color: getScoreColor(score), fontWeight: 'bold' }}>
-          {score > 0 ? score : '-'}
+        <span style={{ color: getScoreColor(score), fontWeight: "bold" }}>
+          {score > 0 ? score : "-"}
         </span>
       ),
     },
     {
-      title: 'Issues',
-      dataIndex: 'issues_found',
-      key: 'issues',
+      title: "Issues",
+      dataIndex: "issues_found",
+      key: "issues",
       render: (issues: number, record: ReviewRecord) => (
         <span>
-          {issues}{' '}
+          {issues}{" "}
           {record.critical_issues_count > 0 && (
             <Tag color="red">{record.critical_issues_count} Critical</Tag>
           )}
@@ -233,16 +250,16 @@ const Dashboard = () => {
       ),
     },
     {
-      title: 'Created At',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm'),
+      title: "Created At",
+      dataIndex: "created_at",
+      key: "created_at",
+      render: (date: string) => dayjs(date).format("YYYY-MM-DD HH:mm"),
     },
   ];
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: '100px 0' }}>
+      <div style={{ textAlign: "center", padding: "100px 0" }}>
         <Spin size="large" tip="Loading dashboard..." />
       </div>
     );
@@ -267,7 +284,7 @@ const Dashboard = () => {
             <Statistic
               title="Completed"
               value={stats?.completed_reviews || 0}
-              valueStyle={{ color: '#3f8600' }}
+              valueStyle={{ color: "#3f8600" }}
               prefix={<CheckCircleOutlined />}
             />
           </Card>
@@ -277,7 +294,7 @@ const Dashboard = () => {
             <Statistic
               title="Pending"
               value={stats?.pending_reviews || 0}
-              valueStyle={{ color: '#1890ff' }}
+              valueStyle={{ color: "#1890ff" }}
               prefix={<ClockCircleOutlined />}
             />
           </Card>
@@ -287,7 +304,7 @@ const Dashboard = () => {
             <Statistic
               title="Failed"
               value={stats?.failed_reviews || 0}
-              valueStyle={{ color: '#cf1322' }}
+              valueStyle={{ color: "#cf1322" }}
               prefix={<CloseCircleOutlined />}
             />
           </Card>
@@ -320,7 +337,7 @@ const Dashboard = () => {
             <Statistic
               title="Critical Issues"
               value={stats?.critical_issues || 0}
-              valueStyle={{ color: '#cf1322' }}
+              valueStyle={{ color: "#cf1322" }}
               prefix={<SecurityScanOutlined />}
             />
           </Card>
@@ -361,18 +378,33 @@ const Dashboard = () => {
         <Col xs={24} lg={16}>
           <Card title="Review Trends">
             {trends.length > 0 ? (
-              <ReactECharts option={getTrendChartOption()} style={{ height: 400 }} />
+              <ReactECharts
+                option={getTrendChartOption()}
+                style={{ height: 400 }}
+              />
             ) : (
-              <div style={{ textAlign: 'center', padding: '100px 0' }}>No data available</div>
+              <div style={{ textAlign: "center", padding: "100px 0" }}>
+                No data available
+              </div>
             )}
           </Card>
         </Col>
         <Col xs={24} lg={8}>
           <Card title="Issue Distribution">
-            {stats && (stats.critical_issues + stats.high_issues + stats.medium_issues + stats.low_issues) > 0 ? (
-              <ReactECharts option={getIssueDistributionOption()} style={{ height: 400 }} />
+            {stats &&
+            stats.critical_issues +
+              stats.high_issues +
+              stats.medium_issues +
+              stats.low_issues >
+              0 ? (
+              <ReactECharts
+                option={getIssueDistributionOption()}
+                style={{ height: 400 }}
+              />
             ) : (
-              <div style={{ textAlign: 'center', padding: '100px 0' }}>No issues found</div>
+              <div style={{ textAlign: "center", padding: "100px 0" }}>
+                No issues found
+              </div>
             )}
           </Card>
         </Col>
@@ -381,10 +413,19 @@ const Dashboard = () => {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24}>
           <Card title="Issue Category Distribution">
-            {stats && (stats.security_issues + stats.performance_issues + stats.quality_issues) > 0 ? (
-              <ReactECharts option={getCategoryDistributionOption()} style={{ height: 300 }} />
+            {stats &&
+            stats.security_issues +
+              stats.performance_issues +
+              stats.quality_issues >
+              0 ? (
+              <ReactECharts
+                option={getCategoryDistributionOption()}
+                style={{ height: 300 }}
+              />
             ) : (
-              <div style={{ textAlign: 'center', padding: '50px 0' }}>No category data available</div>
+              <div style={{ textAlign: "center", padding: "50px 0" }}>
+                No category data available
+              </div>
             )}
           </Card>
         </Col>
@@ -398,7 +439,7 @@ const Dashboard = () => {
           pagination={false}
           onRow={(record) => ({
             onClick: () => navigate(`/reviews/${record.id}`),
-            style: { cursor: 'pointer' },
+            style: { cursor: "pointer" },
           })}
         />
       </Card>

@@ -1,14 +1,33 @@
-import { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, Input, Select, message, Space, Tag, Popconfirm } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
-import { llmApi } from '../../api/llm';
-import type { LLMProvider } from '../../types';
+import { useState, useEffect } from "react";
+import {
+  Table,
+  Button,
+  Modal,
+  Form,
+  Input,
+  Select,
+  message,
+  Space,
+  Tag,
+  Popconfirm,
+} from "antd";
+import {
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+} from "@ant-design/icons";
+import { llmApi } from "../../api/llm";
+import type { LLMProvider } from "../../types";
 
 const LLMProviders = () => {
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(null);
+  const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(
+    null
+  );
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -19,9 +38,9 @@ const LLMProviders = () => {
     setLoading(true);
     try {
       const response = await llmApi.listProviders();
-      setProviders(response.data);
+      setProviders(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
-      console.error('Failed to load providers:', error);
+      console.error("Failed to load providers:", error);
     } finally {
       setLoading(false);
     }
@@ -40,7 +59,7 @@ const LLMProviders = () => {
     setEditingProvider(provider);
     form.setFieldsValue({
       ...provider,
-      api_key: '', // Don't show masked key
+      api_key: "", // Don't show masked key
     });
     setModalVisible(true);
   };
@@ -48,10 +67,10 @@ const LLMProviders = () => {
   const handleDelete = async (id: number) => {
     try {
       await llmApi.deleteProvider(id);
-      message.success('供应商已删除');
+      message.success("供应商已删除");
       loadProviders();
     } catch (error) {
-      console.error('Failed to delete provider:', error);
+      console.error("Failed to delete provider:", error);
     }
   };
 
@@ -63,7 +82,7 @@ const LLMProviders = () => {
         loadProviders();
       }
     } catch (error) {
-      console.error('Test failed:', error);
+      console.error("Test failed:", error);
     }
   };
 
@@ -71,83 +90,91 @@ const LLMProviders = () => {
     try {
       const data = {
         ...values,
-        api_key: values.api_key || '***masked***',
+        api_key: values.api_key || "***masked***",
       };
 
       if (editingProvider) {
         await llmApi.updateProvider(editingProvider.id!, data);
-        message.success('供应商已更新');
+        message.success("供应商已更新");
       } else {
         await llmApi.createProvider(data);
-        message.success('供应商已创建');
+        message.success("供应商已创建");
       }
 
       setModalVisible(false);
       loadProviders();
     } catch (error) {
-      console.error('Failed to save provider:', error);
+      console.error("Failed to save provider:", error);
     }
   };
 
   const columns = [
     {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
+      title: "名称",
+      dataIndex: "name",
+      key: "name",
     },
     {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
+      title: "类型",
+      dataIndex: "type",
+      key: "type",
       render: (type: string) => {
         const colors: Record<string, string> = {
-          openai: 'blue',
-          deepseek: 'purple',
-          claude: 'orange',
-          gemini: 'green',
+          openai: "blue",
+          deepseek: "purple",
+          claude: "orange",
+          gemini: "green",
         };
-        return <Tag color={colors[type] || 'default'}>{type}</Tag>;
+        return <Tag color={colors[type] || "default"}>{type}</Tag>;
       },
     },
     {
-      title: 'Base URL',
-      dataIndex: 'base_url',
-      key: 'base_url',
+      title: "Base URL",
+      dataIndex: "base_url",
+      key: "base_url",
       ellipsis: true,
     },
     {
-      title: '状态',
-      dataIndex: 'is_active',
-      key: 'is_active',
+      title: "状态",
+      dataIndex: "is_active",
+      key: "is_active",
       render: (active: boolean) => (
-        <Tag color={active ? 'success' : 'default'}>
-          {active ? '启用' : '禁用'}
+        <Tag color={active ? "success" : "default"}>
+          {active ? "启用" : "禁用"}
         </Tag>
       ),
     },
     {
-      title: '测试状态',
-      dataIndex: 'last_test_status',
-      key: 'last_test_status',
+      title: "测试状态",
+      dataIndex: "last_test_status",
+      key: "last_test_status",
       render: (status: string) => {
-        if (!status) return '-';
-        return status === 'success' ? (
-          <Tag icon={<CheckCircleOutlined />} color="success">成功</Tag>
+        if (!status) return "-";
+        return status === "success" ? (
+          <Tag icon={<CheckCircleOutlined />} color="success">
+            成功
+          </Tag>
         ) : (
-          <Tag icon={<CloseCircleOutlined />} color="error">失败</Tag>
+          <Tag icon={<CloseCircleOutlined />} color="error">
+            失败
+          </Tag>
         );
       },
     },
     {
-      title: '操作',
-      key: 'action',
+      title: "操作",
+      key: "action",
       width: 200,
       render: (_: any, record: LLMProvider) => (
         <Space size="small">
           <Button size="small" onClick={() => handleTest(record.id!)}>
             测试
           </Button>
-          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEdit(record)}
+          >
             编辑
           </Button>
           <Popconfirm
@@ -181,7 +208,7 @@ const LLMProviders = () => {
       />
 
       <Modal
-        title={editingProvider ? '编辑供应商' : '添加供应商'}
+        title={editingProvider ? "编辑供应商" : "添加供应商"}
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
         footer={null}
@@ -191,7 +218,7 @@ const LLMProviders = () => {
           <Form.Item
             label="名称"
             name="name"
-            rules={[{ required: true, message: '请输入名称' }]}
+            rules={[{ required: true, message: "请输入名称" }]}
           >
             <Input placeholder="如：OpenAI, DeepSeek" />
           </Form.Item>
@@ -199,15 +226,15 @@ const LLMProviders = () => {
           <Form.Item
             label="类型"
             name="type"
-            rules={[{ required: true, message: '请选择类型' }]}
+            rules={[{ required: true, message: "请选择类型" }]}
           >
             <Select
               options={[
-                { label: 'OpenAI', value: 'openai' },
-                { label: 'DeepSeek', value: 'deepseek' },
-                { label: 'Claude', value: 'claude' },
-                { label: 'Google Gemini', value: 'gemini' },
-                { label: 'Ollama', value: 'ollama' },
+                { label: "OpenAI", value: "openai" },
+                { label: "DeepSeek", value: "deepseek" },
+                { label: "Claude", value: "claude" },
+                { label: "Google Gemini", value: "gemini" },
+                { label: "Ollama", value: "ollama" },
               ]}
             />
           </Form.Item>
@@ -216,8 +243,8 @@ const LLMProviders = () => {
             label="Base URL"
             name="base_url"
             rules={[
-              { required: true, message: '请输入Base URL' },
-              { type: 'url', message: '请输入有效的URL' },
+              { required: true, message: "请输入Base URL" },
+              { type: "url", message: "请输入有效的URL" },
             ]}
           >
             <Input placeholder="https://api.openai.com/v1" />
@@ -226,10 +253,10 @@ const LLMProviders = () => {
           <Form.Item
             label="API Key"
             name="api_key"
-            rules={[{ required: !editingProvider, message: '请输入API Key' }]}
+            rules={[{ required: !editingProvider, message: "请输入API Key" }]}
           >
             <Input.Password
-              placeholder={editingProvider ? '留空则保持不变' : '输入API Key'}
+              placeholder={editingProvider ? "留空则保持不变" : "输入API Key"}
             />
           </Form.Item>
 
@@ -238,9 +265,7 @@ const LLMProviders = () => {
               <Button type="primary" htmlType="submit">
                 保存
               </Button>
-              <Button onClick={() => setModalVisible(false)}>
-                取消
-              </Button>
+              <Button onClick={() => setModalVisible(false)}>取消</Button>
             </Space>
           </Form.Item>
         </Form>
