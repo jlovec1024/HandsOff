@@ -214,32 +214,61 @@ func (h *ReviewHandler) GetDashboardStatistics(c *gin.Context) {
 // GetRecentReviews returns recent review results
 // GET /api/dashboard/recent?limit=10
 func (h *ReviewHandler) GetRecentReviews(c *gin.Context) {
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
-	if limit < 1 || limit > 100 {
-		limit = 10
-	}
+	limit := h.parseLimitParam(c)
 
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error(ErrMsgProjectIDMissing)
+		RespondInternalError(c, ErrMsgInternalServer)
 		return
 	}
 
+	reviews, err := h.fetchRecentReviews(projectID, limit)
+	if err != nil {
+		h.log.Error("Failed to get recent reviews", "error", err)
+		RespondInternalError(c, "Failed to fetch recent reviews")
+		return
+	}
+
+	RespondSuccess(c, reviews)
+}
+
+// parseLimitParam extracts and validates the limit query parameter
+func (h *ReviewHandler) parseLimitParam(c *gin.Context) int {
+	limitStr := c.DefaultQuery("limit", strconv.Itoa(DefaultRecentReviewsLimit))
+	limit, _ := strconv.Atoi(limitStr)
+	
+	if limit < MinRecentReviewsLimit || limit > MaxRecentReviewsLimit {
+		return DefaultRecentReviewsLimit
+	}
+	
+	return limit
+}
+
+// fetchRecentReviews retrieves recent reviews from database
+func (h *ReviewHandler) fetchRecentReviews(projectID uint, limit int) ([]model.ReviewResult, error) {
 	var reviews []model.ReviewResult
-	if err := h.db.
+	err := h.db.
 		Where("project_id = ?", projectID).
 		Preload("Repository", "project_id = ?", projectID).
 		Preload("LLMModel.Provider", "project_id = ?", projectID).
 		Order("created_at DESC").
 		Limit(limit).
-		Find(&reviews).Error; err != nil {
-		h.log.Error("Failed to get recent reviews", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recent reviews"})
-		return
-	}
+		Find(&reviews).Error
+	
+	return reviews, err
+}
 
-	c.JSON(http.StatusOK, reviews)
+// parseDaysParam extracts and validates the days query parameter
+func (h *ReviewHandler) parseDaysParam(c *gin.Context) int {
+	daysStr := c.DefaultQuery("days", strconv.Itoa(DefaultTrendDays))
+	days, _ := strconv.Atoi(daysStr)
+	
+	if days < MinTrendDays || days > MaxTrendDays {
+		return DefaultTrendDaysOnError
+	}
+	
+	return days
 }
 
 // GetRepositoryStatistics retrieves statistics for a specific repository
@@ -266,15 +295,12 @@ func (h *ReviewHandler) GetRepositoryStatistics(c *gin.Context) {
 // GetTrendData returns review trend data
 // GET /api/dashboard/trend?days=7
 func (h *ReviewHandler) GetTrendData(c *gin.Context) {
-	days, _ := strconv.Atoi(c.DefaultQuery("days", "7"))
-	if days < 1 || days > 90 {
-		days = 30
-	}
+	days := h.parseDaysParam(c)
 
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error(ErrMsgProjectIDMissing)
+		RespondInternalError(c, ErrMsgInternalServer)
 		return
 	}
 

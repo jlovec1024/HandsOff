@@ -48,25 +48,52 @@ func (s *PlatformService) GetConfig(projectID uint) (*model.GitPlatformConfig, e
 
 // CreateOrUpdateConfig creates or updates platform config with encrypted token for a specific project
 func (s *PlatformService) CreateOrUpdateConfig(config *model.GitPlatformConfig) error {
-	// Encrypt access token if provided
-	if config.AccessToken != "" && config.AccessToken != "***masked***" {
+	// Handle access token based on value:
+	// - Non-empty string: encrypt and save new token
+	// - Empty string: keep existing token (don't update)
+	if config.AccessToken != "" {
+		// New token provided - encrypt it
 		encryptedToken, err := s.encryptor.Encrypt(config.AccessToken)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt access token: %w", err)
 		}
 		config.AccessToken = encryptedToken
-	} else if config.AccessToken == "***masked***" {
-		// Keep existing token
+	} else {
+		// Empty string means "keep existing token"
 		existing, err := s.repo.GetConfig(config.ProjectID)
 		if err == nil {
+			// Preserve existing token
 			config.AccessToken = existing.AccessToken
+		} else {
+			// No existing config - require token for new config
+			return fmt.Errorf("access token is required for new configuration")
 		}
 	}
 
 	return s.repo.CreateOrUpdateConfig(config)
 }
 
-// TestConnection tests the GitLab connection for a specific project
+// TestConnectionWithConfig tests GitLab connection with provided configuration (without saving)
+// This allows users to validate configuration before saving
+func (s *PlatformService) TestConnectionWithConfig(baseURL, accessToken string) (string, error) {
+	// Create GitLab client with provided credentials
+	git, err := gitlab.NewClient(accessToken, gitlab.WithBaseURL(baseURL))
+	if err != nil {
+		return "", fmt.Errorf("failed to create GitLab client: %w", err)
+	}
+
+	// Test connection by getting current user
+	user, _, err := git.Users.CurrentUser()
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to GitLab: %w", err)
+	}
+
+	// Return success message
+	message := fmt.Sprintf("Connected successfully as %s (@%s)", user.Name, user.Username)
+	return message, nil
+}
+
+// TestConnection tests the GitLab connection for a specific project (using saved config)
 func (s *PlatformService) TestConnection(projectID uint, configID uint) error {
 	config, err := s.repo.GetConfig(projectID)
 	if err != nil {

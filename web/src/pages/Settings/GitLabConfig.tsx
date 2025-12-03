@@ -44,15 +44,28 @@ const GitLabConfig = () => {
       const data: GitPlatformConfig = {
         platform_type: "gitlab",
         base_url: values.base_url,
-        access_token: values.access_token || "***masked***",
+        // Use undefined instead of empty string to signal "keep existing value"
+        access_token: values.access_token || undefined,
         is_active: true,
       };
 
-      await platformApi.updateConfig(data);
+      const response = await platformApi.updateConfig(data);
       message.success("GitLab配置已保存");
-      loadConfig();
+
+      // Use returned config directly (avoids extra API call)
+      if (response.data.config) {
+        setConfig(response.data.config);
+        form.setFieldsValue({
+          ...response.data.config,
+          access_token: "", // Don't show masked token
+        });
+      } else {
+        // Fallback: if backend doesn't return config (backward compatibility)
+        loadConfig();
+      }
     } catch (error) {
       console.error("Failed to save config:", error);
+      message.error("保存配置失败");
     } finally {
       setLoading(false);
     }
@@ -63,20 +76,25 @@ const GitLabConfig = () => {
       await form.validateFields();
       const values = form.getFieldsValue();
 
+      // Validate that access_token is provided
+      if (!values.access_token) {
+        message.error("请输入 Access Token 以测试连接");
+        return;
+      }
+
       setTesting(true);
 
-      const testData: GitPlatformConfig = {
+      // Send form data for testing (no need to save first)
+      const testData = {
         platform_type: "gitlab",
         base_url: values.base_url,
-        access_token: values.access_token || config?.access_token || "",
-        is_active: true,
+        access_token: values.access_token,
       };
 
-      const response = await platformApi.testConnection();
+      const response = await platformApi.testConnection(testData);
 
       if (response.data.success) {
         message.success(response.data.message);
-        await loadConfig();
       } else {
         message.error(response.data.message || "连接测试失败");
       }

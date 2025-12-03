@@ -29,11 +29,10 @@ func NewPlatformHandler(service *service.PlatformService, db *gorm.DB, log *logg
 
 // GetConfig returns the current platform configuration
 func (h *PlatformHandler) GetConfig(c *gin.Context) {
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -69,16 +68,10 @@ func (h *PlatformHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
-	if req.AccessToken == "" && req.AccessToken != "***masked***" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Access token is required"})
-		return
-	}
-
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -86,9 +79,14 @@ func (h *PlatformHandler) UpdateConfig(c *gin.Context) {
 	config := &model.GitPlatformConfig{
 		PlatformType: req.PlatformType,
 		BaseURL:      req.BaseURL,
-		AccessToken:  req.AccessToken,
+		AccessToken:  "", // Will be set by service layer based on req.AccessToken
 		IsActive:     req.IsActive,
 		ProjectID:    projectID,
+	}
+
+	// Handle access token: nil = keep existing, non-nil = update
+	if req.AccessToken != nil {
+		config.AccessToken = *req.AccessToken
 	}
 
 	if err := h.service.CreateOrUpdateConfig(config); err != nil {
@@ -97,44 +95,55 @@ func (h *PlatformHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
+	// Get updated config to return to frontend (avoids extra API call)
+	updatedConfig, err := h.service.GetConfig(projectID)
+	if err != nil {
+		// If fetching updated config fails, fall back to simple message
+		h.log.Warn("Failed to fetch updated config", "error", err)
+		h.log.Info("Platform configuration updated", "base_url", req.BaseURL)
+		c.JSON(http.StatusOK, gin.H{"message": "Configuration updated successfully"})
+		return
+	}
+
 	h.log.Info("Platform configuration updated", "base_url", req.BaseURL)
-	c.JSON(http.StatusOK, gin.H{"message": "Configuration updated successfully"})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Configuration updated successfully",
+		"config":  updatedConfig,
+	})
 }
 
 // TestConnection tests the GitLab connection
+// Accepts test configuration in request body (allows testing before saving)
 func (h *PlatformHandler) TestConnection(c *gin.Context) {
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	var req dto.TestConnectionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.log.Error("Failed to bind JSON", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
-	config, err := h.service.GetConfig(projectID)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Please configure GitLab first"})
-			return
-		}
-		h.log.Error("Failed to get platform config", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get configuration"})
+	// Validate required fields
+	if req.BaseURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Base URL is required"})
 		return
 	}
 
-	if err := h.service.TestConnection(projectID, config.ID); err != nil {
+	if req.AccessToken == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Access token is required"})
+		return
+	}
+
+	// Test connection with provided configuration (no saving)
+	message, err := h.service.TestConnectionWithConfig(req.BaseURL, req.AccessToken)
+	if err != nil {
 		h.log.Error("GitLab connection test failed", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Get updated config with test results
-	updatedConfig, _ := h.service.GetConfig(projectID)
-
 	h.log.Info("GitLab connection test successful")
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": updatedConfig.LastTestMessage,
-		"tested_at": updatedConfig.LastTestedAt,
+		"message": message,
 	})
 }

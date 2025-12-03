@@ -68,10 +68,10 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 		public.POST("/auth/login", authHandler.Login)
 		public.GET("/health", healthHandler.Check)
 	}
-
 	// Protected routes (require authentication)
 	protected := r.Group("/api")
 	protected.Use(middleware.Auth(cfg))
+	protected.Use(middleware.ProjectContext(db)) // Add project context
 	{
 		// Auth routes
 		protected.POST("/auth/logout", authHandler.Logout)

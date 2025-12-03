@@ -31,11 +31,10 @@ func (h *RepositoryHandler) ListFromGitLab(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
 
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -59,11 +58,10 @@ func (h *RepositoryHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -90,11 +88,10 @@ func (h *RepositoryHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -127,11 +124,10 @@ func (h *RepositoryHandler) BatchImport(c *gin.Context) {
 		return
 	}
 
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -185,11 +181,10 @@ func (h *RepositoryHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 

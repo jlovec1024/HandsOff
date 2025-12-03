@@ -31,11 +31,10 @@ func NewLLMHandler(service *service.LLMService, db *gorm.DB, log *logger.Logger)
 
 // ListProviders returns all LLM providers
 func (h *LLMHandler) ListProviders(c *gin.Context) {
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -57,11 +56,10 @@ func (h *LLMHandler) GetProvider(c *gin.Context) {
 		return
 	}
 
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 
@@ -150,11 +148,10 @@ func (h *LLMHandler) TestProviderConnection(c *gin.Context) {
 		return
 	}
 
-	// TODO: Replace with ProjectContext middleware
-	projectID, err := getUserDefaultProjectID(c, h.db)
-	if err != nil {
-		h.log.Error("Failed to get default project", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
 

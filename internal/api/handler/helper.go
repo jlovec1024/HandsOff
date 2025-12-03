@@ -35,3 +35,20 @@ func getUserDefaultProjectID(c *gin.Context, db *gorm.DB) (uint, error) {
 
 	return project.ID, nil
 }
+
+// getProjectID safely extracts project_id from gin context with type assertion.
+// Returns (projectID, true) if successful, (0, false) if missing or invalid type.
+// This protects against silent zero-value failures from c.GetUint().
+func getProjectID(c *gin.Context) (uint, bool) {
+	value, exists := c.Get("project_id")
+	if !exists {
+		return 0, false
+	}
+	
+	projectID, ok := value.(uint)
+	if !ok {
+		return 0, false
+	}
+	
+	return projectID, true
+}
