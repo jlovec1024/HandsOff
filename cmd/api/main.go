@@ -13,6 +13,7 @@ import (
 	"github.com/handsoff/handsoff/internal/api/router"
 	"github.com/handsoff/handsoff/pkg/config"
 	"github.com/handsoff/handsoff/pkg/database"
+	"github.com/handsoff/handsoff/pkg/initializer"
 	"github.com/handsoff/handsoff/pkg/logger"
 )
 
@@ -34,10 +35,9 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to connect to database", "error", err)
 	}
-
-	// Auto migrate database
-	if err := database.AutoMigrate(db); err != nil {
-		log.Fatal("Failed to migrate database", "error", err)
+	// Initialize database and create default admin user
+	if err := initializer.Initialize(db, cfg, log); err != nil {
+		log.Fatal("Failed to initialize application", "error", err)
 	}
 
 	// Set Gin mode

@@ -15,6 +15,7 @@ type Config struct {
 	Redis    RedisConfig
 	Worker   WorkerConfig
 	Security SecurityConfig
+	Admin    AdminConfig
 	Log      LogConfig
 	Git      GitConfig
 	CORS     CORSConfig
@@ -54,6 +55,12 @@ type SecurityConfig struct {
 	JWTSecret     string
 	JWTExpiry     time.Duration
 	EncryptionKey string
+}
+
+// AdminConfig contains default admin user settings
+type AdminConfig struct {
+	InitialPassword string
+	Email           string
 }
 
 // LogConfig contains logging settings
@@ -111,6 +118,10 @@ func Load() (*Config, error) {
 			JWTSecret:     getEnv("JWT_SECRET", "change_this_to_a_random_secret_key"),
 			JWTExpiry:     getEnvDuration("JWT_EXPIRY", 24*time.Hour),
 			EncryptionKey: getEnv("ENCRYPTION_KEY", "CHANGE_THIS_TO_BASE64_ENCODED_32_BYTES_KEY"),
+		},
+		Admin: AdminConfig{
+			InitialPassword: getEnv("ADMIN_INITIAL_PASSWORD", "admin123"),
+			Email:           getEnv("ADMIN_EMAIL", "admin@jlovec.net"),
 		},
 		Log: LogConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),
