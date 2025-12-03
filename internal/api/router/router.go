@@ -56,9 +56,9 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 	// Initialize handlers
 	authHandler := handler.NewAuthHandler(db, cfg, log)
 	healthHandler := handler.NewHealthHandler(db, log)
-	platformHandler := handler.NewPlatformHandler(platformService, log)
-	llmHandler := handler.NewLLMHandler(llmService, log)
-	repositoryHandler := handler.NewRepositoryHandler(repositoryService, log)
+	platformHandler := handler.NewPlatformHandler(platformService, db, log)
+	llmHandler := handler.NewLLMHandler(llmService, db, log)
+	repositoryHandler := handler.NewRepositoryHandler(repositoryService, db, log)
 	webhookHandler := handler.NewWebhookHandler(db, log, queueClient)
 	reviewHandler := handler.NewReviewHandler(db, log)
 

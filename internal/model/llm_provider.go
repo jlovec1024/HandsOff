@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// LLMProvider represents an LLM service provider
+// LLMProvider represents an LLM service provider (project-scoped)
 type LLMProvider struct {
 	ID              uint       `gorm:"primarykey" json:"id"`
 	CreatedAt       time.Time  `json:"created_at"`
@@ -16,8 +16,12 @@ type LLMProvider struct {
 	LastTestStatus  string     `gorm:"size:20" json:"last_test_status"`  // success, failed
 	LastTestMessage string     `gorm:"size:500" json:"last_test_message"`
 
+	// Project Relationship
+	ProjectID uint    `gorm:"not null;index;constraint:OnDelete:CASCADE" json:"project_id"`
+	Project   Project `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE" json:"project,omitempty"`
+
 	// Relationships
-	Models []LLMModel `gorm:"foreignKey:ProviderID" json:"models,omitempty"`
+	Models []LLMModel `gorm:"foreignKey:ProviderID;constraint:OnDelete:CASCADE" json:"models,omitempty"`
 }
 
 // TableName specifies the table name

@@ -30,9 +30,9 @@ func NewPlatformService(repo *repository.PlatformRepository, cfg *config.Config)
 	}, nil
 }
 
-// GetConfig retrieves the platform config with decrypted token
-func (s *PlatformService) GetConfig() (*model.GitPlatformConfig, error) {
-	config, err := s.repo.GetConfig()
+// GetConfig retrieves the platform config with decrypted token for a specific project
+func (s *PlatformService) GetConfig(projectID uint) (*model.GitPlatformConfig, error) {
+	config, err := s.repo.GetConfig(projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +46,7 @@ func (s *PlatformService) GetConfig() (*model.GitPlatformConfig, error) {
 	return config, nil
 }
 
-// CreateOrUpdateConfig creates or updates platform config with encrypted token
+// CreateOrUpdateConfig creates or updates platform config with encrypted token for a specific project
 func (s *PlatformService) CreateOrUpdateConfig(config *model.GitPlatformConfig) error {
 	// Encrypt access token if provided
 	if config.AccessToken != "" && config.AccessToken != "***masked***" {
@@ -57,7 +57,7 @@ func (s *PlatformService) CreateOrUpdateConfig(config *model.GitPlatformConfig) 
 		config.AccessToken = encryptedToken
 	} else if config.AccessToken == "***masked***" {
 		// Keep existing token
-		existing, err := s.repo.GetConfig()
+		existing, err := s.repo.GetConfig(config.ProjectID)
 		if err == nil {
 			config.AccessToken = existing.AccessToken
 		}
@@ -66,9 +66,9 @@ func (s *PlatformService) CreateOrUpdateConfig(config *model.GitPlatformConfig) 
 	return s.repo.CreateOrUpdateConfig(config)
 }
 
-// TestConnection tests the GitLab connection
-func (s *PlatformService) TestConnection(configID uint) error {
-	config, err := s.repo.GetConfig()
+// TestConnection tests the GitLab connection for a specific project
+func (s *PlatformService) TestConnection(projectID uint, configID uint) error {
+	config, err := s.repo.GetConfig(projectID)
 	if err != nil {
 		return fmt.Errorf("config not found: %w", err)
 	}

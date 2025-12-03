@@ -1,0 +1,54 @@
+# Docker Compose 覆盖配置 - 本地开发环境
+# 此文件会自动与 docker-compose.yml 合并
+# 专门用于本地开发时的特殊配置
+
+services:
+  # API 服务 - 开发模式配置
+  api:
+    build:
+      target: dev
+    volumes:
+      # 挂载源代码以支持热重载
+      - ./cmd:/app/cmd
+      - ./internal:/app/internal
+      - ./pkg:/app/pkg
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./.air.toml:/app/.air.toml
+      - ./.env:/app/.env
+      # 持久化数据
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+    environment:
+      # 开发环境特定配置
+      LOG_LEVEL: debug
+      LOG_FORMAT: console
+      GIN_MODE: debug
+    command: air -c .air.toml
+
+  # Worker - 开发模式
+  worker:
+    build:
+      target: dev
+    volumes:
+      - ./cmd:/app/cmd
+      - ./internal:/app/internal
+      - ./pkg:/app/pkg
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./.air.toml:/app/.air.toml
+      - ./.env:/app/.env
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+    environment:
+      LOG_LEVEL: debug
+      LOG_FORMAT: console
+    command: air -c .air.toml -d
+
+  # 前端开发服务器 - 确保热重载
+  web:
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8080/api
+      - CHOKIDAR_USEPOLLING=true # 支持文件监听

@@ -1,0 +1,232 @@
+services:
+  # MySQL 数据库服务
+  mysql:
+    image: mysql:8.0
+    container_name: handsoff-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: handsoff_root_pwd
+      MYSQL_DATABASE: handsoff
+      MYSQL_USER: handsoff
+      MYSQL_PASSWORD: handsoff_pwd
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/init-mysql.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-p$$MYSQL_ROOT_PASSWORD",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - handsoff-network
+
+  # Redis 缓存和队列服务
+  redis:
+    image: redis:7-alpine
+    container_name: handsoff-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass handsoff_redis_pwd
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "handsoff_redis_pwd", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - handsoff-network
+
+  # API 服务器
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: handsoff-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      # 数据库配置 - 使用 MySQL
+      DB_TYPE: mysql
+      DB_DSN: handsoff:handsoff_pwd@tcp(mysql:3306)/handsoff?charset=utf8mb4&parseTime=True&loc=Local
+      # Redis 配置
+      REDIS_URL: redis://:handsoff_redis_pwd@redis:6379/0
+      # 服务器配置
+      API_PORT: 8080
+      APP_ENV: development
+      # 日志配置
+      LOG_LEVEL: debug
+      LOG_FORMAT: console
+    volumes:
+      # 挂载代码目录以支持热重载（开发环境）
+      - ./cmd:/app/cmd
+      - ./internal:/app/internal
+      - ./pkg:/app/pkg
+      # 持久化数据
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - handsoff-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/api/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Worker 后台任务处理器
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    container_name: handsoff-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # 数据库配置 - 使用 MySQL
+      DB_TYPE: mysql
+      DB_DSN: handsoff:handsoff_pwd@tcp(mysql:3306)/handsoff?charset=utf8mb4&parseTime=True&loc=Local
+      # Redis 配置
+      REDIS_URL: redis://:handsoff_redis_pwd@redis:6379/0
+      # Worker 配置
+      WORKER_CONCURRENCY: 10
+      APP_ENV: development
+      # 日志配置
+      LOG_LEVEL: debug
+      LOG_FORMAT: console
+    volumes:
+      # 挂载代码目录以支持热重载（开发环境）
+      - ./cmd:/app/cmd
+      - ./internal:/app/internal
+      - ./pkg:/app/pkg
+      # 持久化数据
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - handsoff-network
+
+  # 前端开发服务器
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    container_name: handsoff-web
+    restart: unless-stopped
+    ports:
+      - "3000:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8080/api
+    volumes:
+      # 挂载源代码以支持热重载
+      - ./web/src:/app/src
+      - ./web/public:/app/public
+      - ./web/index.html:/app/index.html
+      - ./web/vite.config.ts:/app/vite.config.ts
+      - ./web/tsconfig.json:/app/tsconfig.json
+      # 持久化 node_modules
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - api
+    networks:
+      - handsoff-network
+    stdin_open: true
+    tty: true
+
+  # Nginx 反向代理（生产模式）
+  nginx:
+    image: nginx:alpine
+    container_name: handsoff-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+    networks:
+      - handsoff-network
+    profiles:
+      - production
+
+  # Redis Commander - Redis 可视化管理工具（开发环境）
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: handsoff-redis-commander
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:handsoff_redis_pwd
+    depends_on:
+      - redis
+    networks:
+      - handsoff-network
+    profiles:
+      - dev-tools
+
+  # Adminer - 数据库管理工具（开发环境）
+  adminer:
+    image: adminer:latest
+    container_name: handsoff-adminer
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+    depends_on:
+      - mysql
+    networks:
+      - handsoff-network
+    profiles:
+      - dev-tools
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  web_node_modules:
+    driver: local
+
+networks:
+  handsoff-network:
+    driver: bridge

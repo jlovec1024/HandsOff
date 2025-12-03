@@ -7,18 +7,21 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/handsoff/handsoff/internal/service"
 	"github.com/handsoff/handsoff/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // RepositoryHandler handles repository requests
 type RepositoryHandler struct {
 	service *service.RepositoryService
+	db      *gorm.DB
 	log     *logger.Logger
 }
 
 // NewRepositoryHandler creates a new repository handler
-func NewRepositoryHandler(service *service.RepositoryService, log *logger.Logger) *RepositoryHandler {
+func NewRepositoryHandler(service *service.RepositoryService, db *gorm.DB, log *logger.Logger) *RepositoryHandler {
 	return &RepositoryHandler{
 		service: service,
+		db:      db,
 		log:     log,
 	}
 }
@@ -28,7 +31,15 @@ func (h *RepositoryHandler) ListFromGitLab(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
 
-	repos, totalPages, err := h.service.ListFromGitLab(page, perPage)
+	// TODO: Replace with ProjectContext middleware
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
+	}
+
+	repos, totalPages, err := h.service.ListFromGitLab(projectID, page, perPage)
 	if err != nil {
 		h.log.Error("Failed to list GitLab repositories", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -48,7 +59,15 @@ func (h *RepositoryHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	repos, total, err := h.service.List(page, pageSize)
+	// TODO: Replace with ProjectContext middleware
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
+	}
+
+	repos, total, err := h.service.List(projectID, page, pageSize)
 	if err != nil {
 		h.log.Error("Failed to list repositories", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list repositories"})
@@ -71,7 +90,15 @@ func (h *RepositoryHandler) Get(c *gin.Context) {
 		return
 	}
 
-	repo, err := h.service.Get(uint(id))
+	// TODO: Replace with ProjectContext middleware
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
+	}
+
+	repo, err := h.service.Get(uint(id), projectID)
 	if err != nil {
 		h.log.Error("Failed to get repository", "error", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found"})
@@ -100,7 +127,15 @@ func (h *RepositoryHandler) BatchImport(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.BatchImport(req.RepositoryIDs, req.WebhookCallbackURL); err != nil {
+	// TODO: Replace with ProjectContext middleware
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
+	}
+
+	if err := h.service.BatchImport(projectID, req.RepositoryIDs, req.WebhookCallbackURL); err != nil {
 		h.log.Error("Failed to import repositories", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -150,7 +185,15 @@ func (h *RepositoryHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Delete(uint(id)); err != nil {
+	// TODO: Replace with ProjectContext middleware
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
+	}
+
+	if err := h.service.Delete(uint(id), projectID); err != nil {
 		h.log.Error("Failed to delete repository", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete repository"})
 		return

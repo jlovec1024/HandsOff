@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/handsoff/handsoff/internal/model"
@@ -210,23 +211,31 @@ func (h *ReviewHandler) GetDashboardStatistics(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
-// GetRecentReviews retrieves recent review results
+// GetRecentReviews returns recent review results
 // GET /api/dashboard/recent?limit=10
 func (h *ReviewHandler) GetRecentReviews(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
-	if limit < 1 || limit > 50 {
+	if limit < 1 || limit > 100 {
 		limit = 10
+	}
+
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
 	}
 
 	var reviews []model.ReviewResult
 	if err := h.db.
-		Preload("Repository").
-		Preload("LLMModel.Provider").
+		Where("project_id = ?", projectID).
+		Preload("Repository", "project_id = ?", projectID).
+		Preload("LLMModel.Provider", "project_id = ?", projectID).
 		Order("created_at DESC").
 		Limit(limit).
 		Find(&reviews).Error; err != nil {
 		h.log.Error("Failed to get recent reviews", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get recent reviews"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recent reviews"})
 		return
 	}
 
@@ -254,36 +263,50 @@ func (h *ReviewHandler) GetRepositoryStatistics(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
-// GetTrendData retrieves trend data for charts
-// GET /api/dashboard/trends?days=30
+// GetTrendData returns review trend data
+// GET /api/dashboard/trend?days=7
 func (h *ReviewHandler) GetTrendData(c *gin.Context) {
-	days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
-	if days < 1 || days > 365 {
+	days, _ := strconv.Atoi(c.DefaultQuery("days", "7"))
+	if days < 1 || days > 90 {
 		days = 30
 	}
 
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
+	}
+
 	type DailyStats struct {
-		Date            string  `json:"date"`
-		ReviewCount     int64   `json:"review_count"`
-		AverageScore    float64 `json:"average_score"`
-		TotalIssues     int64   `json:"total_issues"`
-		CriticalIssues  int64   `json:"critical_issues"`
+		Date           string  `json:"date"`
+		ReviewCount    int64   `json:"review_count"`
+		AvgScore       float64 `json:"avg_score"`
+		TotalIssues    int64   `json:"total_issues"`
+		CriticalIssues int64   `json:"critical_issues"`
 	}
 
 	var trends []DailyStats
-	h.db.Model(&model.ReviewResult{}).
-		Where("created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)", days).
+	startDate := time.Now().AddDate(0, 0, -days)
+
+	if err := h.db.Model(&model.ReviewResult{}).
+		Where("project_id = ?", projectID).
+		Where("created_at >= ?", startDate).
 		Where("status = ?", "completed").
 		Select(`
 			DATE(created_at) as date,
 			COUNT(*) as review_count,
-			AVG(score) as average_score,
-			SUM(issues_found) as total_issues,
-			SUM(critical_issues_count) as critical_issues
-		`).
+			AVG(score) as avg_score,
+			COUNT(*) as total_issues,
+			SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as critical_issues
+		`, "completed").
 		Group("DATE(created_at)").
 		Order("date ASC").
-		Scan(&trends)
+		Find(&trends).Error; err != nil {
+		h.log.Error("Failed to fetch trend data", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch trend statistics"})
+		return
+	}
 
 	c.JSON(http.StatusOK, trends)
 }

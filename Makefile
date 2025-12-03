@@ -60,17 +60,6 @@ dev-setup: deps ## Setup development environment
 	@echo "✅ Development environment ready"
 	@echo "⚠️  Please edit .env file with your configuration"
 
-docker-build: ## Build Docker images
-	docker-compose build
-
-docker-up: ## Start services with Docker Compose
-	docker-compose up -d
-
-docker-down: ## Stop Docker Compose services
-	docker-compose down
-
-docker-logs: ## View Docker logs
-	docker-compose logs -f
 
 # Database operations
 db-migrate: ## Run database migrations

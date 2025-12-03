@@ -17,15 +17,47 @@ func NewLLMRepository(db *gorm.DB) *LLMRepository {
 
 // Provider operations
 
-// ListProviders returns all LLM providers
-func (r *LLMRepository) ListProviders() ([]model.LLMProvider, error) {
+// ListProviders returns all LLM providers for a specific project
+func (r *LLMRepository) ListProviders(projectID uint) ([]model.LLMProvider, error) {
 	var providers []model.LLMProvider
-	err := r.db.Order("created_at DESC").Find(&providers).Error
+	err := r.db.Where("project_id = ?", projectID).Order("created_at DESC").Find(&providers).Error
 	return providers, err
 }
 
-// GetProvider retrieves a provider by ID
-func (r *LLMRepository) GetProvider(id uint) (*model.LLMProvider, error) {
+// FindByProjectID retrieves all providers for a project (alias for compatibility)
+func (r *LLMRepository) FindByProjectID(projectID uint) ([]model.LLMProvider, error) {
+	return r.ListProviders(projectID)
+}
+
+// GetProvider retrieves a provider by ID with project validation
+func (r *LLMRepository) GetProvider(id uint, projectID uint) (*model.LLMProvider, error) {
+	var provider model.LLMProvider
+	err := r.db.Where("id = ? AND project_id = ?", id, projectID).First(&provider).Error
+	if err != nil {
+		return nil, err
+	}
+	return &provider, nil
+}
+
+// GetProviderByID retrieves a provider by ID WITHOUT project validation.
+//
+// ⚠️ SECURITY WARNING: This method bypasses project isolation!
+// Only use for system-level operations where project context is not available:
+//   - Internal service logic (e.g., LLMService updating provider with masked token)
+//   - Background job processors
+//   - Service-to-service calls
+//
+// ❌ DO NOT USE for user-facing API endpoints!
+// ✅ For user requests, use GetProvider(id, projectID) instead to enforce project isolation.
+//
+// Example valid usage:
+//   func (s *LLMService) UpdateProvider(provider *Provider) {
+//       existing, _ := s.repo.GetProviderByID(provider.ID)  // OK: internal service logic
+//       if provider.APIKey == "***masked***" {
+//           provider.APIKey = existing.APIKey  // Preserve existing key
+//       }
+//   }
+func (r *LLMRepository) GetProviderByID(id uint) (*model.LLMProvider, error) {
 	var provider model.LLMProvider
 	err := r.db.First(&provider, id).Error
 	if err != nil {

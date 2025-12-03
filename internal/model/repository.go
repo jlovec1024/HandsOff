@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// Repository represents a Git repository
+// Repository represents a Git repository (project-scoped)
 type Repository struct {
 	ID             uint      `gorm:"primarykey" json:"id"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -20,9 +20,13 @@ type Repository struct {
 	WebhookSecret  string    `gorm:"size:255" json:"-"`                           // Webhook secret token (not exposed in JSON)
 	IsActive       bool      `gorm:"default:true;not null;index" json:"is_active"`
 
+	// Project Relationship
+	ProjectID uint    `gorm:"not null;index;constraint:OnDelete:CASCADE" json:"project_id"`
+	Project   Project `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE" json:"project,omitempty"`
+
 	// Relationships
-	Platform GitPlatformConfig `gorm:"foreignKey:PlatformID" json:"platform,omitempty"`
-	LLMModel *LLMModel         `gorm:"foreignKey:LLMModelID" json:"llm_model,omitempty"`
+	Platform GitPlatformConfig `gorm:"foreignKey:PlatformID;constraint:OnDelete:CASCADE" json:"platform,omitempty"`
+	LLMModel *LLMModel         `gorm:"foreignKey:LLMModelID;constraint:OnDelete:SET NULL" json:"llm_model,omitempty"`
 }
 
 // TableName specifies the table name

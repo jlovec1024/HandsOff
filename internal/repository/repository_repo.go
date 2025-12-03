@@ -15,19 +15,20 @@ func NewRepositoryRepo(db *gorm.DB) *RepositoryRepo {
 	return &RepositoryRepo{db: db}
 }
 
-// List returns all repositories with pagination
-func (r *RepositoryRepo) List(page, pageSize int) ([]model.Repository, int64, error) {
+// List returns all repositories with pagination for a specific project
+func (r *RepositoryRepo) List(projectID uint, page, pageSize int) ([]model.Repository, int64, error) {
 	var repos []model.Repository
 	var total int64
 
 	// Count total
-	if err := r.db.Model(&model.Repository{}).Count(&total).Error; err != nil {
+	if err := r.db.Model(&model.Repository{}).Where("project_id = ?", projectID).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	// Get paginated results
 	offset := (page - 1) * pageSize
-	err := r.db.Preload("Platform").Preload("LLMModel").
+	err := r.db.Where("project_id = ?", projectID).
+		Preload("Platform").Preload("LLMModel").
 		Order("created_at DESC").
 		Offset(offset).Limit(pageSize).
 		Find(&repos).Error
@@ -35,8 +36,49 @@ func (r *RepositoryRepo) List(page, pageSize int) ([]model.Repository, int64, er
 	return repos, total, err
 }
 
-// Get retrieves a repository by ID
-func (r *RepositoryRepo) Get(id uint) (*model.Repository, error) {
+// FindByProjectID retrieves all repositories for a project (no pagination)
+func (r *RepositoryRepo) FindByProjectID(projectID uint) ([]model.Repository, error) {
+	var repos []model.Repository
+	err := r.db.Where("project_id = ?", projectID).
+		Preload("Platform").Preload("LLMModel").
+		Order("created_at DESC").
+		Find(&repos).Error
+	return repos, err
+}
+
+// Get retrieves a repository by ID with project validation
+func (r *RepositoryRepo) Get(id uint, projectID uint) (*model.Repository, error) {
+	var repo model.Repository
+	err := r.db.Where("id = ? AND project_id = ?", id, projectID).
+		Preload("Platform").Preload("LLMModel").
+		First(&repo).Error
+	if err != nil {
+		return nil, err
+	}
+	return &repo, nil
+}
+
+// GetByID retrieves a repository by ID WITHOUT project validation.
+//
+// ⚠️ SECURITY WARNING: This method bypasses project isolation!
+// Only use for system-level operations where project context is not available:
+//   - Webhook handlers (incoming events from Git platforms)
+//   - Background job processors (async tasks)
+//   - Internal service-to-service calls
+//
+// ❌ DO NOT USE for user-facing API endpoints!
+// ✅ For user requests, use Get(id, projectID) instead to enforce project isolation.
+//
+// Example valid usage:
+//   func HandleWebhook(repoID uint) {
+//       repo, _ := repoRepo.GetByID(repoID)  // OK: webhook context has no user
+//   }
+//
+// Example INVALID usage:
+//   func (h *Handler) GetRepository(c *gin.Context) {
+//       repo, _ := h.repo.GetByID(id)  // ❌ WRONG: exposes other users' repos
+//   }
+func (r *RepositoryRepo) GetByID(id uint) (*model.Repository, error) {
 	var repo model.Repository
 	err := r.db.Preload("Platform").Preload("LLMModel").First(&repo, id).Error
 	if err != nil {
@@ -45,10 +87,11 @@ func (r *RepositoryRepo) Get(id uint) (*model.Repository, error) {
 	return &repo, nil
 }
 
-// GetByPlatformRepoID retrieves a repository by platform repo ID
-func (r *RepositoryRepo) GetByPlatformRepoID(platformID uint, platformRepoID int64) (*model.Repository, error) {
+// GetByPlatformRepoID retrieves a repository by platform repo ID with project scope
+func (r *RepositoryRepo) GetByPlatformRepoID(projectID uint, platformID uint, platformRepoID int64) (*model.Repository, error) {
 	var repo model.Repository
-	err := r.db.Where("platform_id = ? AND platform_repo_id = ?", platformID, platformRepoID).First(&repo).Error
+	err := r.db.Where("project_id = ? AND platform_id = ? AND platform_repo_id = ?", 
+		projectID, platformID, platformRepoID).First(&repo).Error
 	if err != nil {
 		return nil, err
 	}

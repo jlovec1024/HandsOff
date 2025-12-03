@@ -31,9 +31,9 @@ func NewLLMService(repo *repository.LLMRepository, cfg *config.Config) (*LLMServ
 
 // Provider operations
 
-// ListProviders returns all providers with masked API keys
-func (s *LLMService) ListProviders() ([]model.LLMProvider, error) {
-	providers, err := s.repo.ListProviders()
+// ListProviders returns all providers with masked API keys for a specific project
+func (s *LLMService) ListProviders(projectID uint) ([]model.LLMProvider, error) {
+	providers, err := s.repo.ListProviders(projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -48,9 +48,9 @@ func (s *LLMService) ListProviders() ([]model.LLMProvider, error) {
 	return providers, nil
 }
 
-// GetProvider retrieves a provider with masked API key
-func (s *LLMService) GetProvider(id uint) (*model.LLMProvider, error) {
-	provider, err := s.repo.GetProvider(id)
+// GetProvider retrieves a provider with masked API key with project validation
+func (s *LLMService) GetProvider(id uint, projectID uint) (*model.LLMProvider, error) {
+	provider, err := s.repo.GetProvider(id, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (s *LLMService) UpdateProvider(provider *model.LLMProvider) error {
 		provider.APIKey = encryptedKey
 	} else if provider.APIKey == "***masked***" {
 		// Keep existing key
-		existing, err := s.repo.GetProvider(provider.ID)
+		existing, err := s.repo.GetProviderByID(provider.ID)
 		if err == nil {
 			provider.APIKey = existing.APIKey
 		}
@@ -103,8 +103,8 @@ func (s *LLMService) DeleteProvider(id uint) error {
 }
 
 // TestProviderConnection tests the LLM provider connection
-func (s *LLMService) TestProviderConnection(id uint) error {
-	provider, err := s.repo.GetProvider(id)
+func (s *LLMService) TestProviderConnection(id uint, projectID uint) error {
+	provider, err := s.repo.GetProvider(id, projectID)
 	if err != nil {
 		return fmt.Errorf("provider not found: %w", err)
 	}

@@ -16,6 +16,9 @@ type User struct {
 	Password  string         `gorm:"not null;size:255" json:"-"` // Never expose password in JSON
 	Email     string         `gorm:"uniqueIndex;size:100" json:"email"`
 	IsActive  bool           `gorm:"default:true;not null" json:"is_active"`
+
+	// Relationships
+	Projects []Project `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE" json:"projects,omitempty"`
 }
 
 // TableName specifies the table name

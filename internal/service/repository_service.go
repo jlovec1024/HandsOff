@@ -48,9 +48,9 @@ type GitLabRepository struct {
 }
 
 // ListFromGitLab fetches repositories from GitLab
-func (s *RepositoryService) ListFromGitLab(page, perPage int) ([]GitLabRepository, int, error) {
+func (s *RepositoryService) ListFromGitLab(projectID uint, page, perPage int) ([]GitLabRepository, int, error) {
 	// Get platform config
-	platformConfig, err := s.platformRepo.GetConfig()
+	platformConfig, err := s.platformRepo.GetConfig(projectID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("platform not configured: %w", err)
 	}
@@ -100,19 +100,19 @@ func (s *RepositoryService) ListFromGitLab(page, perPage int) ([]GitLabRepositor
 }
 
 // List returns all repositories
-func (s *RepositoryService) List(page, pageSize int) ([]model.Repository, int64, error) {
-	return s.repo.List(page, pageSize)
+func (s *RepositoryService) List(projectID uint, page, pageSize int) ([]model.Repository, int64, error) {
+	return s.repo.List(projectID, page, pageSize)
 }
 
 // Get retrieves a repository
-func (s *RepositoryService) Get(id uint) (*model.Repository, error) {
-	return s.repo.Get(id)
+func (s *RepositoryService) Get(id uint, projectID uint) (*model.Repository, error) {
+	return s.repo.Get(id, projectID)
 }
 
 // BatchImport imports multiple repositories from GitLab
-func (s *RepositoryService) BatchImport(platformRepoIDs []int64, webhookCallbackURL string) error {
+func (s *RepositoryService) BatchImport(projectID uint, platformRepoIDs []int64, webhookCallbackURL string) error {
 	// Get platform config
-	platformConfig, err := s.platformRepo.GetConfig()
+	platformConfig, err := s.platformRepo.GetConfig(projectID)
 	if err != nil {
 		return fmt.Errorf("platform not configured: %w", err)
 	}
@@ -133,7 +133,7 @@ func (s *RepositoryService) BatchImport(platformRepoIDs []int64, webhookCallback
 
 	for _, platformRepoID := range platformRepoIDs {
 		// Check if already imported
-		existing, err := s.repo.GetByPlatformRepoID(platformConfig.ID, platformRepoID)
+		existing, err := s.repo.GetByPlatformRepoID(projectID, platformConfig.ID, platformRepoID)
 		if err == nil && existing != nil {
 			continue // Already imported
 		}
@@ -200,15 +200,15 @@ func (s *RepositoryService) UpdateLLMModel(id uint, llmModelID *uint) error {
 }
 
 // Delete deletes a repository and removes webhook from GitLab
-func (s *RepositoryService) Delete(id uint) error {
+func (s *RepositoryService) Delete(id uint, projectID uint) error {
 	// Get repository
-	repo, err := s.repo.Get(id)
+	repo, err := s.repo.Get(id, projectID)
 	if err != nil {
 		return fmt.Errorf("repository not found: %w", err)
 	}
 
 	// Get platform config
-	platformConfig, err := s.platformRepo.GetConfig()
+	platformConfig, err := s.platformRepo.GetConfig(projectID)
 	if err != nil {
 		return fmt.Errorf("platform not configured: %w", err)
 	}

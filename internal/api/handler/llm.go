@@ -8,18 +8,21 @@ import (
 	"github.com/handsoff/handsoff/internal/model"
 	"github.com/handsoff/handsoff/internal/service"
 	"github.com/handsoff/handsoff/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // LLMHandler handles LLM provider and model requests
 type LLMHandler struct {
 	service *service.LLMService
+	db      *gorm.DB
 	log     *logger.Logger
 }
 
 // NewLLMHandler creates a new LLM handler
-func NewLLMHandler(service *service.LLMService, log *logger.Logger) *LLMHandler {
+func NewLLMHandler(service *service.LLMService, db *gorm.DB, log *logger.Logger) *LLMHandler {
 	return &LLMHandler{
 		service: service,
+		db:      db,
 		log:     log,
 	}
 }
@@ -28,7 +31,15 @@ func NewLLMHandler(service *service.LLMService, log *logger.Logger) *LLMHandler 
 
 // ListProviders returns all LLM providers
 func (h *LLMHandler) ListProviders(c *gin.Context) {
-	providers, err := h.service.ListProviders()
+	// TODO: Replace with ProjectContext middleware
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
+	}
+
+	providers, err := h.service.ListProviders(projectID)
 	if err != nil {
 		h.log.Error("Failed to list providers", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list providers"})
@@ -46,7 +57,15 @@ func (h *LLMHandler) GetProvider(c *gin.Context) {
 		return
 	}
 
-	provider, err := h.service.GetProvider(uint(id))
+	// TODO: Replace with ProjectContext middleware
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
+	}
+
+	provider, err := h.service.GetProvider(uint(id), projectID)
 	if err != nil {
 		h.log.Error("Failed to get provider", "error", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Provider not found"})
@@ -131,7 +150,15 @@ func (h *LLMHandler) TestProviderConnection(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.TestProviderConnection(uint(id)); err != nil {
+	// TODO: Replace with ProjectContext middleware
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		h.log.Error("Failed to get default project", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No project found. Please create a project first."})
+		return
+	}
+
+	if err := h.service.TestProviderConnection(uint(id), projectID); err != nil {
 		h.log.Error("Provider connection test failed", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

@@ -15,20 +15,27 @@ func NewPlatformRepository(db *gorm.DB) *PlatformRepository {
 	return &PlatformRepository{db: db}
 }
 
-// GetConfig retrieves the Git platform config (single instance)
-func (r *PlatformRepository) GetConfig() (*model.GitPlatformConfig, error) {
+// GetConfig retrieves the Git platform config for a specific project
+func (r *PlatformRepository) GetConfig(projectID uint) (*model.GitPlatformConfig, error) {
 	var config model.GitPlatformConfig
-	err := r.db.First(&config).Error
+	err := r.db.Where("project_id = ?", projectID).First(&config).Error
 	if err != nil {
 		return nil, err
 	}
 	return &config, nil
 }
 
-// CreateOrUpdateConfig creates or updates the Git platform config
+// FindByProjectID retrieves all platform configs for a project
+func (r *PlatformRepository) FindByProjectID(projectID uint) ([]model.GitPlatformConfig, error) {
+	var configs []model.GitPlatformConfig
+	err := r.db.Where("project_id = ?", projectID).Find(&configs).Error
+	return configs, err
+}
+
+// CreateOrUpdateConfig creates or updates the Git platform config for a project
 func (r *PlatformRepository) CreateOrUpdateConfig(config *model.GitPlatformConfig) error {
 	var existing model.GitPlatformConfig
-	err := r.db.First(&existing).Error
+	err := r.db.Where("project_id = ? AND platform_type = ?", config.ProjectID, config.PlatformType).First(&existing).Error
 
 	if err == gorm.ErrRecordNotFound {
 		// Create new config
@@ -37,9 +44,24 @@ func (r *PlatformRepository) CreateOrUpdateConfig(config *model.GitPlatformConfi
 		return err
 	}
 
-	// Update existing config
+	// Update existing config - use Updates to avoid zero-value time issues
 	config.ID = existing.ID
-	return r.db.Save(config).Error
+	config.CreatedAt = existing.CreatedAt // Preserve creation time
+	
+	// Build update map (only update non-empty fields to preserve existing values)
+	updates := map[string]interface{}{
+		"platform_type": config.PlatformType,
+		"base_url":      config.BaseURL,
+		"access_token":  config.AccessToken,
+		"is_active":     config.IsActive,
+	}
+	
+	// Only update webhook_secret if provided (avoid overwriting with empty value)
+	if config.WebhookSecret != "" {
+		updates["webhook_secret"] = config.WebhookSecret
+	}
+	
+	return r.db.Model(&existing).Updates(updates).Error
 }
 
 // UpdateTestStatus updates the test status of the platform config
