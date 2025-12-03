@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, message } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
-import { authApi } from '../../api/auth';
-import { useAuthStore } from '../../stores/auth';
-import type { LoginRequest } from '../../types';
-import './style.css';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Form, Input, Button, Card, message } from "antd";
+import { UserOutlined, LockOutlined } from "@ant-design/icons";
+import { authApi } from "../../api/auth";
+import { useAuthStore } from "../../stores/auth";
+import { ROUTES } from "../../constants/routes";
+import type { LoginRequest } from "../../types";
+import "./style.css";
 
 const Login = () => {
   const [loading, setLoading] = useState(false);
@@ -19,11 +20,11 @@ const Login = () => {
       const { token, user } = response.data;
 
       setAuth(token, user);
-      message.success('Login successful!');
-      navigate('/');
+      message.success("Login successful!");
+      navigate(ROUTES.HOME);
     } catch (error) {
-      // Error already handled by axios interceptor
-      console.error('Login failed:', error);
+      // Error message is displayed by axios interceptor
+      console.error("Login failed:", error);
     } finally {
       setLoading(false);
     }
@@ -34,14 +35,14 @@ const Login = () => {
       <Card className="login-card" title="HandsOff - AI Code Review">
         <Form
           name="login"
-          initialValues={{ username: 'admin', password: '' }}
+          initialValues={{ username: "admin", password: "" }}
           onFinish={onFinish}
           autoComplete="off"
           size="large"
         >
           <Form.Item
             name="username"
-            rules={[{ required: true, message: 'Please input your username!' }]}
+            rules={[{ required: true, message: "Please input your username!" }]}
           >
             <Input
               prefix={<UserOutlined />}
@@ -52,7 +53,7 @@ const Login = () => {
 
           <Form.Item
             name="password"
-            rules={[{ required: true, message: 'Please input your password!' }]}
+            rules={[{ required: true, message: "Please input your password!" }]}
           >
             <Input.Password
               prefix={<LockOutlined />}
@@ -62,12 +63,7 @@ const Login = () => {
           </Form.Item>
 
           <Form.Item>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={loading}
-              block
-            >
+            <Button type="primary" htmlType="submit" loading={loading} block>
               Login
             </Button>
           </Form.Item>
@@ -75,8 +71,12 @@ const Login = () => {
 
         <div className="login-hint">
           <p>Default credentials:</p>
-          <p>Username: <strong>admin</strong></p>
-          <p>Password: <strong>admin123</strong></p>
+          <p>
+            Username: <strong>admin</strong>
+          </p>
+          <p>
+            Password: <strong>admin123</strong>
+          </p>
         </div>
       </Card>
     </div>
