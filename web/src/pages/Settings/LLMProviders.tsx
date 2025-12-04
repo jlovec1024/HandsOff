@@ -21,6 +21,20 @@ import {
 import { llmApi } from "../../api/llm";
 import type { LLMProvider } from "../../types";
 
+// 表单数据类型：排除后端自动生成的字段，api_key 在编辑模式下可选
+type LLMProviderFormValues = Omit<
+  LLMProvider,
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "last_tested_at"
+  | "last_test_status"
+  | "last_test_message"
+  | "api_key"
+> & {
+  api_key?: string; // 编辑模式可选，创建模式必填（由表单验证保证）
+};
+
 const LLMProviders = () => {
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [loading, setLoading] = useState(false);
@@ -41,6 +55,7 @@ const LLMProviders = () => {
       setProviders(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error("Failed to load providers:", error);
+      message.error("加载供应商列表失败");
     } finally {
       setLoading(false);
     }
@@ -71,6 +86,7 @@ const LLMProviders = () => {
       loadProviders();
     } catch (error) {
       console.error("Failed to delete provider:", error);
+      message.error("删除供应商失败");
     }
   };
 
@@ -83,21 +99,25 @@ const LLMProviders = () => {
       }
     } catch (error) {
       console.error("Test failed:", error);
+      message.error("测试供应商失败");
     }
   };
 
-  const handleSubmit = async (values: any) => {
+  const handleSubmit = async (values: LLMProviderFormValues) => {
     try {
-      const data = {
-        ...values,
-        api_key: values.api_key || "***masked***",
-      };
+      // 编辑模式：如果用户没输入新 Key，就删除 api_key 字段（后端保持原值）
+      // 创建模式：api_key 必填
+      const data = { ...values };
+      if (editingProvider && !values.api_key) {
+        delete data.api_key;
+      }
 
       if (editingProvider) {
         await llmApi.updateProvider(editingProvider.id!, data);
         message.success("供应商已更新");
       } else {
-        await llmApi.createProvider(data);
+        // 创建模式：api_key 由表单验证保证存在
+        await llmApi.createProvider(data as Omit<LLMProvider, "id">);
         message.success("供应商已创建");
       }
 
@@ -105,6 +125,7 @@ const LLMProviders = () => {
       loadProviders();
     } catch (error) {
       console.error("Failed to save provider:", error);
+      message.error("保存供应商失败");
     }
   };
 
