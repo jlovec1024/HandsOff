@@ -9,36 +9,39 @@ import (
 	"time"
 )
 
-// OpenAIClient implements Client interface for OpenAI API
-type OpenAIClient struct {
-	config Config
-	client *http.Client
+// OpenAICompatibleClient implements Client interface for OpenAI-compatible APIs
+// This includes OpenAI, DeepSeek, and other providers that follow the OpenAI API specification
+type OpenAICompatibleClient struct {
+	providerName string
+	config       Config
+	client       *http.Client
 }
 
-// NewOpenAIClient creates a new OpenAI client
-func NewOpenAIClient(config Config) *OpenAIClient {
-	return &OpenAIClient{
-		config: config,
+// NewOpenAICompatibleClient creates a new OpenAI-compatible client
+func NewOpenAICompatibleClient(providerName string, config Config) *OpenAICompatibleClient {
+	return &OpenAICompatibleClient{
+		providerName: providerName,
+		config:       config,
 		client: &http.Client{
 			Timeout: config.Timeout * time.Second,
 		},
 	}
 }
 
-// OpenAI API request/response structures
-type openAIRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openAIMessage `json:"messages"`
-	MaxTokens   int             `json:"max_tokens,omitempty"`
-	Temperature float32         `json:"temperature,omitempty"`
+// OpenAI-compatible API request/response structures
+type compatibleRequest struct {
+	Model       string              `json:"model"`
+	Messages    []compatibleMessage `json:"messages"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+	Temperature float32             `json:"temperature,omitempty"`
 }
 
-type openAIMessage struct {
+type compatibleMessage struct {
 	Role    string `json:"role"`    // system, user, assistant
 	Content string `json:"content"`
 }
 
-type openAIResponse struct {
+type compatibleResponse struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
 	Created int64  `json:"created"`
@@ -63,14 +66,14 @@ type openAIResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// Review performs code review using OpenAI API
-func (c *OpenAIClient) Review(req ReviewRequest) (*ReviewResponse, error) {
+// Review performs code review using OpenAI-compatible API
+func (c *OpenAICompatibleClient) Review(req ReviewRequest) (*ReviewResponse, error) {
 	start := time.Now()
 
 	// Construct request
-	openaiReq := openAIRequest{
+	apiReq := compatibleRequest{
 		Model: c.config.ModelName,
-		Messages: []openAIMessage{
+		Messages: []compatibleMessage{
 			{
 				Role:    "system",
 				Content: "You are an expert code reviewer. Analyze the code changes and provide structured feedback in JSON format.",
@@ -85,7 +88,7 @@ func (c *OpenAIClient) Review(req ReviewRequest) (*ReviewResponse, error) {
 	}
 
 	// Marshal request
-	reqBody, err := json.Marshal(openaiReq)
+	reqBody, err := json.Marshal(apiReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -113,23 +116,23 @@ func (c *OpenAIClient) Review(req ReviewRequest) (*ReviewResponse, error) {
 	}
 
 	// Parse response
-	var openaiResp openAIResponse
-	if err := json.Unmarshal(body, &openaiResp); err != nil {
+	var apiResp compatibleResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// Check for API errors
-	if openaiResp.Error != nil {
-		return nil, fmt.Errorf("OpenAI API error: %s (type: %s)", openaiResp.Error.Message, openaiResp.Error.Type)
+	if apiResp.Error != nil {
+		return nil, fmt.Errorf("%s API error: %s (type: %s)", c.providerName, apiResp.Error.Message, apiResp.Error.Type)
 	}
 
 	// Check response validity
-	if len(openaiResp.Choices) == 0 {
+	if len(apiResp.Choices) == 0 {
 		return nil, fmt.Errorf("no choices in response")
 	}
 
 	// Extract content
-	content := openaiResp.Choices[0].Message.Content
+	content := apiResp.Choices[0].Message.Content
 
 	// Parse structured review response
 	reviewResp, err := parseReviewResponse(content)
@@ -139,18 +142,18 @@ func (c *OpenAIClient) Review(req ReviewRequest) (*ReviewResponse, error) {
 
 	// Fill metadata
 	reviewResp.RawResponse = content
-	reviewResp.ModelUsed = openaiResp.Model
-	reviewResp.TokensUsed = openaiResp.Usage.TotalTokens
+	reviewResp.ModelUsed = apiResp.Model
+	reviewResp.TokensUsed = apiResp.Usage.TotalTokens
 	reviewResp.Duration = time.Since(start)
 
 	return reviewResp, nil
 }
 
-// TestConnection tests OpenAI API connectivity
-func (c *OpenAIClient) TestConnection() error {
-	req := openAIRequest{
+// TestConnection tests API connectivity
+func (c *OpenAICompatibleClient) TestConnection() error {
+	req := compatibleRequest{
 		Model: c.config.ModelName,
-		Messages: []openAIMessage{
+		Messages: []compatibleMessage{
 			{
 				Role:    "user",
 				Content: "Hello, this is a test message.",
@@ -187,6 +190,6 @@ func (c *OpenAIClient) TestConnection() error {
 }
 
 // GetProviderName returns the provider name
-func (c *OpenAIClient) GetProviderName() string {
-	return "OpenAI"
+func (c *OpenAICompatibleClient) GetProviderName() string {
+	return c.providerName
 }

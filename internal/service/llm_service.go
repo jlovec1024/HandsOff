@@ -1,9 +1,14 @@
 package service
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
+	"github.com/handsoff/handsoff/internal/llm"
 	"github.com/handsoff/handsoff/internal/model"
 	"github.com/handsoff/handsoff/internal/repository"
 	"github.com/handsoff/handsoff/pkg/config"
@@ -94,12 +99,27 @@ func (s *LLMService) UpdateProvider(provider *model.LLMProvider) error {
 		}
 	}
 
-	return s.repo.UpdateProvider(provider)
+	if err := s.repo.UpdateProvider(provider); err != nil {
+		return err
+	}
+
+	// Invalidate cached clients for this provider
+	// This ensures subsequent requests use the updated configuration
+	llm.InvalidateProvider(provider.ID)
+
+	return nil
 }
 
 // DeleteProvider deletes a provider
 func (s *LLMService) DeleteProvider(id uint) error {
-	return s.repo.DeleteProvider(id)
+	if err := s.repo.DeleteProvider(id); err != nil {
+		return err
+	}
+
+	// Invalidate cached clients for this provider
+	llm.InvalidateProvider(id)
+
+	return nil
 }
 
 // TestProviderConnection tests the LLM provider connection
@@ -143,13 +163,67 @@ func (s *LLMService) TestProviderConnection(id uint, projectID uint) error {
 	return nil
 }
 
-// testOpenAICompatible tests OpenAI-compatible API
+// testOpenAICompatible tests OpenAI-compatible API by making a real API call
 func (s *LLMService) testOpenAICompatible(baseURL, apiKey string) error {
-	// For MVP, we'll do a simple validation
-	// In production, you'd make an actual API call
+	// Validate parameters
 	if baseURL == "" || apiKey == "" {
 		return fmt.Errorf("base URL and API key are required")
 	}
+
+	// Create a minimal test request (5 tokens to minimize cost)
+	testRequest := map[string]interface{}{
+		"model": "gpt-3.5-turbo", // Default model, should work for most OpenAI-compatible APIs
+		"messages": []map[string]string{
+			{"role": "user", "content": "test"},
+		},
+		"max_tokens": 5,
+	}
+
+	// Marshal request body
+	reqBody, err := json.Marshal(testRequest)
+	if err != nil {
+		return fmt.Errorf("failed to marshal test request: %w", err)
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest("POST", baseURL+"/chat/completions", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	// Send request
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connection failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response to verify it's valid JSON
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return fmt.Errorf("invalid API response: %w", err)
+	}
+
 	return nil
 }
 

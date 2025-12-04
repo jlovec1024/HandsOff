@@ -32,9 +32,9 @@ func NewClient(provider *model.LLMProvider, llmModel *model.LLMModel, encryption
 	// Select client implementation based on provider type
 	switch provider.Type {
 	case "openai":
-		return NewOpenAIClient(config), nil
+		return NewOpenAICompatibleClient("OpenAI", config), nil
 	case "deepseek":
-		return NewDeepSeekClient(config), nil
+		return NewOpenAICompatibleClient("DeepSeek", config), nil
 	case "claude":
 		return nil, fmt.Errorf("claude provider not yet implemented")
 	case "gemini":

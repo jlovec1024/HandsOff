@@ -177,10 +177,10 @@ func (h *ReviewHandler) HandleCodeReview(ctx context.Context, t *asynq.Task) err
 
 // performLLMReview calls LLM to perform code review
 func (h *ReviewHandler) performLLMReview(repo model.Repository, payload CodeReviewPayload, diff string) (*llm.ReviewResponse, error) {
-	// Create LLM client
-	llmClient, err := llm.NewClient(repo.LLMModel.Provider, repo.LLMModel, h.encryptionKey)
+	// Get or create LLM client (uses pool for performance)
+	llmClient, err := llm.GetOrCreateClient(repo.LLMModel.Provider, repo.LLMModel, h.encryptionKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create LLM client: %w", err)
+		return nil, fmt.Errorf("failed to get LLM client: %w", err)
 	}
 
 	// Build prompt data
