@@ -35,18 +35,19 @@ request.interceptors.response.use(
       // Handle 401 Unauthorized
       if (status === 401) {
         const isLoginPage = window.location.pathname === ROUTES.LOGIN;
+        const errorMsg = isLoginPage
+          ? data?.error || "Authentication failed"
+          : "Session expired, please login again";
 
-        if (isLoginPage) {
-          // On login page, let the component handle the error
-          message.error(data?.error || "Authentication failed");
-          return Promise.reject(error);
+        message.error(errorMsg);
+
+        // Redirect to login only if not already on login page (prevents infinite loop)
+        if (!isLoginPage) {
+          const { clearAuth } = useAuthStore.getState();
+          clearAuth();
+          window.location.href = ROUTES.LOGIN;
         }
 
-        // On other pages, clear auth state and redirect to login
-        const { clearAuth } = useAuthStore.getState();
-        clearAuth();
-        message.error("Session expired, please login again");
-        window.location.href = ROUTES.LOGIN;
         return Promise.reject(error);
       }
 

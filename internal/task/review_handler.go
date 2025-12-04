@@ -36,60 +36,78 @@ func NewReviewHandler(db *gorm.DB, log Logger, encryptionKey string) *ReviewHand
 }
 
 // HandleCodeReview processes code review tasks
+// REFACTORED: Split into 6 small functions with single responsibility
+// FIXED: GitLab comment failure now triggers retry (was swallowed before)
 func (h *ReviewHandler) HandleCodeReview(ctx context.Context, t *asynq.Task) error {
-	// Parse task payload
+	// Step 1: Parse payload and load review result from DB
+	reviewResult, err := h.loadReviewContext(t)
+	if err != nil {
+		return err // Already logged internally
+	}
+
+	// Step 2: Fetch MR diff from GitLab
+	diff, gitlabClient, err := h.fetchMRDiff(reviewResult)
+	if err != nil {
+		h.markReviewFailed(reviewResult.ID, fmt.Sprintf("Failed to get MR diff: %v", err))
+		return err
+	}
+
+	// Step 3: Perform LLM code review
+	reviewResp, err := h.callLLMReview(reviewResult, diff)
+	if err != nil {
+		h.markReviewFailed(reviewResult.ID, fmt.Sprintf("LLM review failed: %v", err))
+		return err
+	}
+
+	// Step 4: Save review results to database
+	if err := h.saveReviewResults(reviewResult, reviewResp); err != nil {
+		return err
+	}
+
+	// Step 5: Post comment to GitLab MR
+	// FIXED: Now returns error to trigger Asynq retry if comment fails
+	if err := h.postCommentToGitLab(reviewResult, gitlabClient, reviewResp); err != nil {
+		h.log.Error("Failed to post comment, will retry", "error", err, "review_id", reviewResult.ID)
+		return fmt.Errorf("failed to post comment: %w", err)
+	}
+
+	h.log.Info("Code review completed successfully",
+		"review_id", reviewResult.ID,
+		"score", reviewResp.Score,
+		"suggestions", len(reviewResp.Suggestions))
+
+	return nil
+}
+
+// loadReviewContext loads review result with all relationships from database
+func (h *ReviewHandler) loadReviewContext(t *asynq.Task) (*model.ReviewResult, error) {
 	var payload CodeReviewPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		h.log.Error("Failed to unmarshal task payload", "error", err)
-		return fmt.Errorf("failed to unmarshal payload: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
-	h.log.Info("Processing code review task",
-		"repository_id", payload.RepositoryID,
-		"mr_id", payload.MergeRequestID,
+	h.log.Info("Processing code review task", 
+		"review_id", payload.ReviewResultID,
 		"task_id", t.ResultWriter().TaskID())
 
-	// Find the repository with relationships
-	var repo model.Repository
-	if err := h.db.Preload("Platform").Preload("LLMModel.Provider").
-		First(&repo, payload.RepositoryID).Error; err != nil {
-		h.log.Error("Failed to find repository", "error", err, "repository_id", payload.RepositoryID)
-		return fmt.Errorf("repository not found: %w", err)
+	// Load ReviewResult with all relationships (Repository, Platform, LLMModel, Provider)
+	var reviewResult model.ReviewResult
+	err := h.db.
+		Preload("Repository.Platform").
+		Preload("Repository.LLMModel.Provider").
+		Preload("LLMModel.Provider").
+		First(&reviewResult, payload.ReviewResultID).Error
+
+	if err != nil {
+		h.log.Error("Failed to load review result", "error", err, "review_id", payload.ReviewResultID)
+		return nil, fmt.Errorf("review result not found: %w", err)
 	}
 
 	// Verify LLM model is configured
-	if repo.LLMModel == nil {
-		h.log.Error("No LLM model configured", "repository_id", payload.RepositoryID)
-		return fmt.Errorf("no LLM model configured for repository %d", payload.RepositoryID)
-	}
-
-	// Find or create review result record
-	var reviewResult model.ReviewResult
-	if err := h.db.Where("repository_id = ? AND merge_request_id = ?",
-		payload.RepositoryID, payload.MergeRequestID).
-		First(&reviewResult).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// Create new review result if not exists
-			reviewResult = model.ReviewResult{
-				RepositoryID:   payload.RepositoryID,
-				MergeRequestID: payload.MergeRequestID,
-				MRTitle:        payload.MRTitle,
-				MRAuthor:       payload.MRAuthor,
-				SourceBranch:   payload.SourceBranch,
-				TargetBranch:   payload.TargetBranch,
-				MRWebURL:       payload.MRWebURL,
-				LLMModelID:     *repo.LLMModelID,
-				Status:         "processing",
-				CommentPosted:  false,
-			}
-			if err := h.db.Create(&reviewResult).Error; err != nil {
-				h.log.Error("Failed to create review result", "error", err)
-				return fmt.Errorf("failed to create review result: %w", err)
-			}
-		} else {
-			h.log.Error("Failed to query review result", "error", err)
-			return fmt.Errorf("failed to query review result: %w", err)
-		}
+	if reviewResult.LLMModel == nil {
+		h.log.Error("No LLM model configured", "review_id", reviewResult.ID)
+		return nil, fmt.Errorf("no LLM model configured")
 	}
 
 	// Update status to processing
@@ -97,88 +115,49 @@ func (h *ReviewHandler) HandleCodeReview(ctx context.Context, t *asynq.Task) err
 		h.log.Error("Failed to update review status", "error", err)
 	}
 
-	h.log.Info("Review result record found/created",
-		"review_id", reviewResult.ID,
-		"status", reviewResult.Status)
-
-	// Get MR diff from GitLab
-	h.log.Info("Fetching MR diff from GitLab",
-		"project_id", payload.ProjectID,
-		"mr_id", payload.MergeRequestID,
-		"platform_url", repo.Platform.BaseURL)
-
-	gitlabClient := gitlab.NewClient(repo.Platform.BaseURL, repo.Platform.AccessToken)
-	diff, err := gitlabClient.GetMRDiff(int(payload.ProjectID), int(payload.MergeRequestID))
-	if err != nil {
-		// Update status to failed
-		h.db.Model(&reviewResult).Updates(map[string]interface{}{
-			"status":        "failed",
-			"error_message": fmt.Sprintf("Failed to get MR diff: %v", err),
-		})
-		h.log.Error("Failed to get MR diff from GitLab", "error", err)
-		return fmt.Errorf("failed to get MR diff: %w", err)
-	}
-
-	h.log.Info("MR diff fetched successfully", "diff_size", len(diff))
-
-	// Perform LLM code review
-	h.log.Info("Starting LLM code review",
-		"review_id", reviewResult.ID,
-		"repository", repo.Name,
-		"mr_id", payload.MergeRequestID,
-		"llm_provider", repo.LLMModel.Provider.Type)
-
-	reviewResp, err := h.performLLMReview(repo, payload, diff)
-	if err != nil {
-		// Use storage service to mark as failed
-		storage := service.NewReviewStorageService(h.db)
-		if storageErr := storage.MarkReviewFailed(&reviewResult, err.Error()); storageErr != nil {
-			h.log.Error("Failed to mark review as failed", "error", storageErr)
-		}
-		h.log.Error("LLM review failed", "error", err, "review_id", reviewResult.ID)
-		return fmt.Errorf("LLM review failed: %w", err)
-	}
-
-	// Use storage service to save review result with statistics
-	h.log.Info("Saving review result with statistics", "suggestions_count", len(reviewResp.Suggestions))
-	storage := service.NewReviewStorageService(h.db)
-	if err := storage.SaveReviewResult(&reviewResult, reviewResp); err != nil {
-		h.log.Error("Failed to save review result", "error", err)
-		return fmt.Errorf("failed to save review result: %w", err)
-	}
-
-	h.log.Info("Code review completed successfully",
-		"review_id", reviewResult.ID,
-		"repository_id", payload.RepositoryID,
-		"mr_id", payload.MergeRequestID,
-		"score", reviewResp.Score,
-		"suggestions_count", len(reviewResp.Suggestions))
-
-	// Post comment to GitLab MR
-	h.log.Info("Posting review comment to GitLab MR",
-		"project_id", payload.ProjectID,
-		"mr_id", payload.MergeRequestID)
-
-	comment := gitlab.FormatReviewComment(reviewResp)
-	if err := gitlabClient.PostMRComment(int(payload.ProjectID), int(payload.MergeRequestID), comment); err != nil {
-		h.log.Error("Failed to post comment to GitLab", "error", err)
-		// Don't fail the task - review is already saved
-		// Just log the error and mark comment_posted as false
-	} else {
-		// Update comment_posted flag
-		if err := h.db.Model(&reviewResult).Update("comment_posted", true).Error; err != nil {
-			h.log.Error("Failed to update comment_posted flag", "error", err)
-		}
-		h.log.Info("Review comment posted successfully to GitLab MR")
-	}
-
-	return nil
+	return &reviewResult, nil
 }
 
-// performLLMReview calls LLM to perform code review
-func (h *ReviewHandler) performLLMReview(repo model.Repository, payload CodeReviewPayload, diff string) (*llm.ReviewResponse, error) {
+// fetchMRDiff fetches MR diff from GitLab
+func (h *ReviewHandler) fetchMRDiff(review *model.ReviewResult) (string, *gitlab.Client, error) {
+	h.log.Info("Fetching MR diff from GitLab",
+		"review_id", review.ID,
+		"mr_id", review.MergeRequestID,
+		"platform", review.Repository.Platform.BaseURL)
+
+	client := gitlab.NewClient(
+		review.Repository.Platform.BaseURL,
+		review.Repository.Platform.AccessToken,
+	)
+
+	// Note: We need platform_project_id from Repository, not from payload
+	diff, err := client.GetMRDiff(
+		int(review.Repository.PlatformRepoID),
+		int(review.MergeRequestID),
+	)
+
+	if err != nil {
+		h.log.Error("Failed to get MR diff", "error", err, "review_id", review.ID)
+		return "", nil, fmt.Errorf("failed to get MR diff: %w", err)
+	}
+
+	h.log.Info("MR diff fetched successfully", "diff_size", len(diff), "review_id", review.ID)
+	return diff, client, nil
+}
+
+// callLLMReview calls LLM to perform code review
+func (h *ReviewHandler) callLLMReview(review *model.ReviewResult, diff string) (*llm.ReviewResponse, error) {
+	h.log.Info("Starting LLM code review",
+		"review_id", review.ID,
+		"repository", review.Repository.Name,
+		"llm_provider", review.LLMModel.Provider.Type)
+
 	// Get or create LLM client (uses pool for performance)
-	llmClient, err := llm.GetOrCreateClient(repo.LLMModel.Provider, repo.LLMModel, h.encryptionKey)
+	llmClient, err := llm.GetOrCreateClient(
+		review.LLMModel.Provider,
+		review.LLMModel,
+		h.encryptionKey,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get LLM client: %w", err)
 	}
@@ -186,26 +165,28 @@ func (h *ReviewHandler) performLLMReview(repo model.Repository, payload CodeRevi
 	// Build prompt data
 	promptData := llm.BuildPromptData(
 		diff,
-		payload.MRTitle,
-		payload.MRAuthor,
-		payload.SourceBranch,
-		payload.TargetBranch,
+		review.MRTitle,
+		review.MRAuthor,
+		review.SourceBranch,
+		review.TargetBranch,
 	)
 
-	// Render prompt using default template
 	prompt := llm.RenderPrompt(llm.GetDefaultPrompt(), promptData)
 
 	// Prepare review request
 	reviewReq := llm.ReviewRequest{
 		Diff:        diff,
 		Prompt:      prompt,
-		MaxTokens:   repo.LLMModel.MaxTokens,
-		Temperature: repo.LLMModel.Temperature,
-		ModelName:   repo.LLMModel.ModelName,
+		MaxTokens:   review.LLMModel.MaxTokens,
+		Temperature: review.LLMModel.Temperature,
+		ModelName:   review.LLMModel.ModelName,
 	}
 
 	// Call LLM API
-	h.log.Info("Calling LLM API", "provider", repo.LLMModel.Provider.Type, "model", repo.LLMModel.ModelName)
+	h.log.Info("Calling LLM API", 
+		"provider", review.LLMModel.Provider.Type,
+		"model", review.LLMModel.ModelName)
+
 	reviewResp, err := llmClient.Review(reviewReq)
 	if err != nil {
 		return nil, fmt.Errorf("LLM API call failed: %w", err)
@@ -217,6 +198,58 @@ func (h *ReviewHandler) performLLMReview(repo model.Repository, payload CodeRevi
 		"suggestions", len(reviewResp.Suggestions))
 
 	return reviewResp, nil
+}
+
+// saveReviewResults saves review results and suggestions to database
+func (h *ReviewHandler) saveReviewResults(review *model.ReviewResult, resp *llm.ReviewResponse) error {
+	h.log.Info("Saving review result with statistics", 
+		"review_id", review.ID,
+		"suggestions_count", len(resp.Suggestions))
+
+	storage := service.NewReviewStorageService(h.db)
+	if err := storage.SaveReviewResult(review, resp); err != nil {
+		h.log.Error("Failed to save review result", "error", err, "review_id", review.ID)
+		return fmt.Errorf("failed to save review result: %w", err)
+	}
+
+	return nil
+}
+
+// postCommentToGitLab posts review comment to GitLab MR
+// FIXED: Now returns error to trigger retry (was swallowing error before)
+func (h *ReviewHandler) postCommentToGitLab(review *model.ReviewResult, client *gitlab.Client, resp *llm.ReviewResponse) error {
+	h.log.Info("Posting review comment to GitLab MR",
+		"review_id", review.ID,
+		"mr_id", review.MergeRequestID)
+
+	comment := gitlab.FormatReviewComment(resp)
+	err := client.PostMRComment(
+		int(review.Repository.PlatformRepoID),
+		int(review.MergeRequestID),
+		comment,
+	)
+
+	if err != nil {
+		h.log.Error("Failed to post comment to GitLab", "error", err, "review_id", review.ID)
+		return fmt.Errorf("failed to post comment: %w", err)
+	}
+
+	// Update comment_posted flag
+	if err := h.db.Model(review).Update("comment_posted", true).Error; err != nil {
+		h.log.Error("Failed to update comment_posted flag", "error", err)
+		// Don't fail the task for this minor error
+	}
+
+	h.log.Info("Review comment posted successfully", "review_id", review.ID)
+	return nil
+}
+
+// markReviewFailed marks review as failed in database
+func (h *ReviewHandler) markReviewFailed(reviewID uint, errorMsg string) {
+	storage := service.NewReviewStorageService(h.db)
+	if err := storage.MarkReviewFailed(&model.ReviewResult{ID: reviewID}, errorMsg); err != nil {
+		h.log.Error("Failed to mark review as failed", "error", err, "review_id", reviewID)
+	}
 }
 
 

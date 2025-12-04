@@ -140,6 +140,13 @@ func (h *ReviewHandler) GetReviewStatistics(c *gin.Context) {
 // GetDashboardStatistics retrieves overall dashboard statistics
 // GET /api/dashboard/statistics
 func (h *ReviewHandler) GetDashboardStatistics(c *gin.Context) {
+	// Get user's project ID for data isolation
+	projectID, err := getUserDefaultProjectID(c, h.db)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Failed to get project context"})
+		return
+	}
+
 	var stats struct {
 		TotalReviews       int64   `json:"total_reviews"`
 		CompletedReviews   int64   `json:"completed_reviews"`
@@ -156,57 +163,31 @@ func (h *ReviewHandler) GetDashboardStatistics(c *gin.Context) {
 		QualityIssues      int64   `json:"quality_issues"`
 	}
 
-	// Total reviews
-	h.db.Model(&model.ReviewResult{}).Count(&stats.TotalReviews)
-
-	// Reviews by status
-	h.db.Model(&model.ReviewResult{}).Where("status = ?", "completed").Count(&stats.CompletedReviews)
-	h.db.Model(&model.ReviewResult{}).Where("status IN ?", []string{"pending", "processing"}).Count(&stats.PendingReviews)
-	h.db.Model(&model.ReviewResult{}).Where("status = ?", "failed").Count(&stats.FailedReviews)
-
-	// Average score
-	var avgScore struct {
-		Avg float64
-	}
-	h.db.Model(&model.ReviewResult{}).
-		Where("status = ? AND score > 0", "completed").
-		Select("AVG(score) as avg").
-		Scan(&avgScore)
-	stats.AverageScore = avgScore.Avg
-
-	// Sum statistics from completed reviews
-	var sumStats struct {
-		TotalIssues   int64
-		Critical      int64
-		High          int64
-		Medium        int64
-		Low           int64
-		Security      int64
-		Performance   int64
-		Quality       int64
-	}
-	h.db.Model(&model.ReviewResult{}).
-		Where("status = ?", "completed").
+	// Single aggregated query with project isolation (6 queries → 1)
+	err = h.db.Table("review_results").
+		Joins("INNER JOIN repositories ON review_results.repository_id = repositories.id").
+		Where("repositories.project_id = ?", projectID).
 		Select(`
-			SUM(issues_found) as total_issues,
-			SUM(critical_issues_count) as critical,
-			SUM(high_issues_count) as high,
-			SUM(medium_issues_count) as medium,
-			SUM(low_issues_count) as low,
-			SUM(security_issues_count) as security,
-			SUM(performance_issues_count) as performance,
-			SUM(quality_issues_count) as quality
+			COUNT(*) as total_reviews,
+			SUM(CASE WHEN review_results.status = 'completed' THEN 1 ELSE 0 END) as completed_reviews,
+			SUM(CASE WHEN review_results.status IN ('pending', 'processing') THEN 1 ELSE 0 END) as pending_reviews,
+			SUM(CASE WHEN review_results.status = 'failed' THEN 1 ELSE 0 END) as failed_reviews,
+			AVG(CASE WHEN review_results.status = 'completed' AND review_results.score > 0 THEN review_results.score ELSE NULL END) as average_score,
+			SUM(CASE WHEN review_results.status = 'completed' THEN review_results.issues_found ELSE 0 END) as total_issues_found,
+			SUM(CASE WHEN review_results.status = 'completed' THEN review_results.critical_issues_count ELSE 0 END) as critical_issues,
+			SUM(CASE WHEN review_results.status = 'completed' THEN review_results.high_issues_count ELSE 0 END) as high_issues,
+			SUM(CASE WHEN review_results.status = 'completed' THEN review_results.medium_issues_count ELSE 0 END) as medium_issues,
+			SUM(CASE WHEN review_results.status = 'completed' THEN review_results.low_issues_count ELSE 0 END) as low_issues,
+			SUM(CASE WHEN review_results.status = 'completed' THEN review_results.security_issues_count ELSE 0 END) as security_issues,
+			SUM(CASE WHEN review_results.status = 'completed' THEN review_results.performance_issues_count ELSE 0 END) as performance_issues,
+			SUM(CASE WHEN review_results.status = 'completed' THEN review_results.quality_issues_count ELSE 0 END) as quality_issues
 		`).
-		Scan(&sumStats)
+		Scan(&stats).Error
 
-	stats.TotalIssuesFound = sumStats.TotalIssues
-	stats.CriticalIssues = sumStats.Critical
-	stats.HighIssues = sumStats.High
-	stats.MediumIssues = sumStats.Medium
-	stats.LowIssues = sumStats.Low
-	stats.SecurityIssues = sumStats.Security
-	stats.PerformanceIssues = sumStats.Performance
-	stats.QualityIssues = sumStats.Quality
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch statistics"})
+		return
+	}
 
 	c.JSON(http.StatusOK, stats)
 }

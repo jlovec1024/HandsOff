@@ -7,8 +7,8 @@ type ReviewResult struct {
 	ID             uint      `gorm:"primarykey" json:"id"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
-	RepositoryID   uint      `gorm:"not null;index" json:"repository_id"`   // Foreign key to repositories
-	MergeRequestID int64     `gorm:"not null;index" json:"merge_request_id"` // GitLab MR ID
+	RepositoryID   uint      `gorm:"not null;uniqueIndex:idx_repo_mr" json:"repository_id"`   // Foreign key to repositories
+	MergeRequestID int64     `gorm:"not null;uniqueIndex:idx_repo_mr" json:"merge_request_id"` // GitLab MR ID (unique per repository)
 	MRTitle        string    `gorm:"size:500" json:"mr_title"`
 	MRAuthor       string    `gorm:"size:100;index" json:"mr_author"`
 	SourceBranch   string    `gorm:"size:255" json:"source_branch"`

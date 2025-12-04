@@ -9,15 +9,10 @@ const (
 )
 
 // CodeReviewPayload represents the payload for code review task
+// REFACTORED: Only pass ReviewResultID instead of duplicating all MR fields
+// Worker will load ReviewResult with all relationships from DB
 type CodeReviewPayload struct {
-	RepositoryID   uint   `json:"repository_id"`
-	MergeRequestID int64  `json:"merge_request_id"`
-	MRTitle        string `json:"mr_title"`
-	MRAuthor       string `json:"mr_author"`
-	SourceBranch   string `json:"source_branch"`
-	TargetBranch   string `json:"target_branch"`
-	MRWebURL       string `json:"mr_web_url"`
-	ProjectID      int64  `json:"project_id"`
+	ReviewResultID uint `json:"review_result_id"` // Foreign key to review_results
 }
 
 // ToJSON converts payload to JSON
