@@ -29,19 +29,7 @@ func NewClient(provider *model.LLMProvider, llmModel *model.LLMModel, encryption
 		Timeout:     60, // 60 seconds default
 	}
 
-	// Select client implementation based on provider type
-	switch provider.Type {
-	case "openai":
-		return NewOpenAICompatibleClient("OpenAI", config), nil
-	case "deepseek":
-		return NewOpenAICompatibleClient("DeepSeek", config), nil
-	case "claude":
-		return nil, fmt.Errorf("claude provider not yet implemented")
-	case "gemini":
-		return nil, fmt.Errorf("gemini provider not yet implemented")
-	case "ollama":
-		return nil, fmt.Errorf("ollama provider not yet implemented")
-	default:
-		return nil, fmt.Errorf("unsupported provider type: %s", provider.Type)
-	}
+	// Use registry to create client (Open-Closed Principle)
+	// New providers can be registered without modifying this code
+	return createClientFromRegistry(provider.Type, config)
 }
