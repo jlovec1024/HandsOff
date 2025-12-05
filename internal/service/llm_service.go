@@ -82,24 +82,40 @@ func (s *LLMService) CreateProvider(provider *model.LLMProvider) error {
 	return s.repo.CreateProvider(provider)
 }
 
-// UpdateProvider updates a provider
+// UpdateProvider updates a provider with partial update support
 func (s *LLMService) UpdateProvider(provider *model.LLMProvider) error {
-	// Handle API key encryption
+	// Get existing provider to merge with updates
+	existing, err := s.repo.GetProviderByID(provider.ID)
+	if err != nil {
+		return fmt.Errorf("provider not found: %w", err)
+	}
+
+	// Merge non-empty fields from request to existing provider
+	if provider.Name != "" {
+		existing.Name = provider.Name
+	}
+	if provider.BaseURL != "" {
+		existing.BaseURL = provider.BaseURL
+	}
+	if provider.Model != "" {
+		existing.Model = provider.Model
+	}
+
+	// Handle API key: only update if a new key is provided
 	if provider.APIKey != "" && provider.APIKey != "***masked***" {
 		encryptedKey, err := s.encryptor.Encrypt(provider.APIKey)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt API key: %w", err)
 		}
-		provider.APIKey = encryptedKey
-	} else if provider.APIKey == "***masked***" {
-		// Keep existing key
-		existing, err := s.repo.GetProviderByID(provider.ID)
-		if err == nil {
-			provider.APIKey = existing.APIKey
-		}
+		existing.APIKey = encryptedKey
 	}
+	// If APIKey is empty or masked, keep the existing encrypted key (no change)
 
-	if err := s.repo.UpdateProvider(provider); err != nil {
+	// Update IsActive (always update since it's a boolean with default value)
+	existing.IsActive = provider.IsActive
+
+	// Save the merged provider
+	if err := s.repo.UpdateProvider(existing); err != nil {
 		return err
 	}
 
@@ -122,7 +138,7 @@ func (s *LLMService) DeleteProvider(id uint) error {
 	return nil
 }
 
-// TestProviderConnection tests the LLM provider connection
+// TestProviderConnection tests the LLM provider connection using stored model
 func (s *LLMService) TestProviderConnection(id uint, projectID uint) error {
 	provider, err := s.repo.GetProvider(id, projectID)
 	if err != nil {
@@ -136,8 +152,8 @@ func (s *LLMService) TestProviderConnection(id uint, projectID uint) error {
 		return fmt.Errorf("failed to decrypt API key: %w", err)
 	}
 
-	// All providers are OpenAI-compatible, test directly
-	testErr := s.testOpenAICompatible(provider.BaseURL, decryptedKey)
+	// Test using the model stored in Provider table (not hardcoded)
+	testErr := s.TestModelConnection(provider.BaseURL, decryptedKey, provider.Model)
 	if testErr != nil {
 		s.repo.UpdateProviderTestStatus(id, "failed", testErr.Error())
 		return testErr
@@ -147,7 +163,7 @@ func (s *LLMService) TestProviderConnection(id uint, projectID uint) error {
 	now := time.Now()
 	provider.LastTestedAt = &now
 	provider.LastTestStatus = "success"
-	provider.LastTestMessage = "Connection test successful"
+	provider.LastTestMessage = fmt.Sprintf("Model %s test successful", provider.Model)
 
 	if err := s.repo.UpdateProvider(provider); err != nil {
 		return fmt.Errorf("failed to update test status: %w", err)
@@ -168,8 +184,8 @@ func (s *LLMService) FetchAvailableModels(baseURL, apiKey string) ([]string, err
 		Timeout: 15 * time.Second,
 	}
 
-	// Create HTTP request to /v1/models
-	req, err := http.NewRequest("GET", baseURL+"/v1/models", nil)
+	// Create HTTP request to /models
+	req, err := http.NewRequest("GET", baseURL+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -221,7 +237,7 @@ func (s *LLMService) FetchAvailableModels(baseURL, apiKey string) ([]string, err
 		return nil, fmt.Errorf("authentication failed: invalid API key or insufficient permissions")
 
 	case http.StatusNotFound:
-		return nil, fmt.Errorf("endpoint not found: this provider may not support the /v1/models interface")
+		return nil, fmt.Errorf("endpoint not found: this provider may not support the /models interface")
 
 	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable:
 		return nil, fmt.Errorf("provider service error (status %d): %s", resp.StatusCode, string(body))
@@ -249,16 +265,16 @@ func (s *LLMService) FetchModelsForProvider(providerID uint, projectID uint) ([]
 	return s.FetchAvailableModels(provider.BaseURL, decryptedKey)
 }
 
-// testOpenAICompatible tests OpenAI-compatible API by making a real API call
-func (s *LLMService) testOpenAICompatible(baseURL, apiKey string) error {
+// TestModelConnection tests a specific model with temporary or stored credentials
+func (s *LLMService) TestModelConnection(baseURL, apiKey, model string) error {
 	// Validate parameters
-	if baseURL == "" || apiKey == "" {
-		return fmt.Errorf("base URL and API key are required")
+	if baseURL == "" || apiKey == "" || model == "" {
+		return fmt.Errorf("base URL, API key, and model are required")
 	}
 
 	// Create a minimal test request (5 tokens to minimize cost)
 	testRequest := map[string]interface{}{
-		"model": "gpt-3.5-turbo", // Default model, should work for most OpenAI-compatible APIs
+		"model": model, // Use user-specified model
 		"messages": []map[string]string{
 			{"role": "user", "content": "test"},
 		},
@@ -301,7 +317,7 @@ func (s *LLMService) testOpenAICompatible(baseURL, apiKey string) error {
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("model test failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response to verify it's valid JSON
@@ -312,5 +328,3 @@ func (s *LLMService) testOpenAICompatible(baseURL, apiKey string) error {
 
 	return nil
 }
-
-

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -124,21 +125,65 @@ func (h *LLMHandler) UpdateProvider(c *gin.Context) {
 		return
 	}
 
-	var req model.LLMProvider
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	// Use inline DTO to handle optional api_key
+	var req struct {
+		Name     string `json:"name"`
+		BaseURL  string `json:"base_url"`
+		APIKey   string `json:"api_key"` // Optional: empty means keep existing
+		Model    string `json:"model"`
+		IsActive *bool  `json:"is_active"` // Pointer to distinguish between false and not provided
+	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
-	req.ID = uint(id)
-	if err := h.service.UpdateProvider(&req); err != nil {
+	// Build update data - only include non-empty fields
+	provider := &model.LLMProvider{
+		ID:        uint(id),
+		ProjectID: projectID,
+	}
+
+	// Update fields if provided
+	if req.Name != "" {
+		provider.Name = req.Name
+	}
+	if req.BaseURL != "" {
+		provider.BaseURL = req.BaseURL
+	}
+	if req.APIKey != "" {
+		provider.APIKey = req.APIKey
+	}
+	if req.Model != "" {
+		provider.Model = req.Model
+	}
+	if req.IsActive != nil {
+		provider.IsActive = *req.IsActive
+	}
+
+	if err := h.service.UpdateProvider(provider); err != nil {
 		h.log.Error("Failed to update provider", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update provider"})
 		return
 	}
 
 	h.log.Info("LLM provider updated", "id", id)
-	c.JSON(http.StatusOK, req)
+	
+	// Fetch and return updated provider (with masked API key)
+	updated, err := h.service.GetProvider(uint(id), projectID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "Provider updated successfully"})
+		return
+	}
+	c.JSON(http.StatusOK, updated)
 }
 
 // DeleteProvider deletes a provider
@@ -229,6 +274,29 @@ func (h *LLMHandler) FetchProviderModels(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"models": models})
+}
+
+// TestTemporaryModel tests a specific model with temporary credentials (for create mode)
+func (h *LLMHandler) TestTemporaryModel(c *gin.Context) {
+	var req struct {
+		BaseURL string `json:"base_url" binding:"required"`
+		APIKey  string `json:"api_key" binding:"required"`
+		Model   string `json:"model" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Base URL, API key, and model are required"})
+		return
+	}
+
+	if err := h.service.TestModelConnection(req.BaseURL, req.APIKey, req.Model); err != nil {
+		h.log.Error("Model test failed", "model", req.Model, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.log.Info("Model test successful", "model", req.Model)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Model %s test successful", req.Model)})
 }
 
 // Model handlers

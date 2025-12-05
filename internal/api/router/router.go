@@ -90,6 +90,7 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 	protected.DELETE("/llm/providers/:id", llmHandler.DeleteProvider)
 	protected.POST("/llm/providers/:id/test", llmHandler.TestProviderConnection)
 	protected.POST("/llm/providers/models", llmHandler.FetchAvailableModels)
+	protected.POST("/llm/providers/test-model", llmHandler.TestTemporaryModel) // Test temporary model config
 	protected.GET("/llm/providers/:id/models", llmHandler.FetchProviderModels)
 
 		// LLM Model routes (removed - simplified to single provider layer)

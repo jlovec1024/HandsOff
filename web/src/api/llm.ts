@@ -41,4 +41,16 @@ export const llmApi = {
   fetchProviderModels: (id: number) => {
     return request.get<{ models: string[] }>(`/llm/providers/${id}/models`);
   },
+
+  // Test a specific model with temporary credentials (for create mode)
+  testTemporaryModel: (baseURL: string, apiKey: string, model: string) => {
+    return request.post<{ success: boolean; message: string }>(
+      "/llm/providers/test-model",
+      {
+        base_url: baseURL,
+        api_key: apiKey,
+        model: model,
+      }
+    );
+  },
 };

@@ -209,8 +209,9 @@ const LLMProviders = () => {
         message.success("供应商已创建");
       }
 
+      // 关闭弹窗前先刷新列表，确保显示最新数据
+      await loadProviders();
       setModalVisible(false);
-      loadProviders();
     } catch (error) {
       console.error("Failed to save provider:", error);
       message.error("保存供应商失败");
