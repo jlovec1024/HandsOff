@@ -14,7 +14,7 @@ type ReviewResult struct {
 	SourceBranch   string    `gorm:"size:255" json:"source_branch"`
 	TargetBranch   string    `gorm:"size:255" json:"target_branch"`
 	MRWebURL       string    `gorm:"size:500" json:"mr_web_url"`
-	LLMModelID     uint      `gorm:"not null;index" json:"llm_model_id"`  // Foreign key to llm_models
+	LLMProviderID  uint      `gorm:"not null;index" json:"llm_provider_id"`  // Foreign key to llm_providers
 	Score          int       `gorm:"index" json:"score"`                  // 0-100
 	Summary        string    `gorm:"type:text" json:"summary"`            // AI summary
 	RawResult      string    `gorm:"type:text" json:"raw_result"`         // Raw AI response (JSON)
@@ -36,7 +36,7 @@ type ReviewResult struct {
 
 	// Relationships
 	Repository     *Repository      `gorm:"foreignKey:RepositoryID" json:"repository,omitempty"`
-	LLMModel       *LLMModel        `gorm:"foreignKey:LLMModelID" json:"llm_model,omitempty"`
+	LLMProvider    *LLMProvider     `gorm:"foreignKey:LLMProviderID" json:"llm_provider,omitempty"`
 	FixSuggestions []FixSuggestion  `gorm:"foreignKey:ReviewResultID" json:"fix_suggestions,omitempty"`
 }
 

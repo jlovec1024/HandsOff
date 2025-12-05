@@ -1,8 +1,7 @@
 import { Tabs } from 'antd';
-import { SettingOutlined, GitlabOutlined, RobotOutlined, ApiOutlined } from '@ant-design/icons';
+import { SettingOutlined, GitlabOutlined, ApiOutlined } from '@ant-design/icons';
 import GitLabConfig from './GitLabConfig';
 import LLMProviders from './LLMProviders';
-import LLMModels from './LLMModels';
 import SystemConfig from './SystemConfig';
 
 const Settings = () => {
@@ -26,16 +25,6 @@ const Settings = () => {
         </span>
       ),
       children: <LLMProviders />,
-    },
-    {
-      key: 'models',
-      label: (
-        <span>
-          <RobotOutlined />
-          LLM模型
-        </span>
-      ),
-      children: <LLMModels />,
     },
     {
       key: 'system',

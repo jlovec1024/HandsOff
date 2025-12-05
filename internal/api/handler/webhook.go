@@ -140,7 +140,7 @@ func (h *WebhookHandler) findAndValidateRepository(mrEvent *webhook.GitLabMergeR
 		// TODO: Pass raw body from parseAndValidateWebhook if signature validation is needed
 	}
 
-	if repo.LLMModelID == nil {
+	if repo.LLMProviderID == nil {
 		h.log.Warn("No LLM model configured for repository", 
 			"repository_id", repo.ID,
 			"repository_name", repo.Name)
@@ -168,7 +168,7 @@ func (h *WebhookHandler) createReviewRecord(repo *model.Repository, mrEvent *web
 		SourceBranch:  mrEvent.GetSourceBranch(),
 		TargetBranch:  mrEvent.GetTargetBranch(),
 		MRWebURL:      mrEvent.GetMRWebURL(),
-		LLMModelID:    *repo.LLMModelID,
+		LLMProviderID: *repo.LLMProviderID,
 		Status:        "pending",
 		CommentPosted: false,
 	}).FirstOrCreate(&reviewResult).Error

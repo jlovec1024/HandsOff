@@ -95,8 +95,8 @@ func (h *ReviewHandler) loadReviewContext(t *asynq.Task) (*model.ReviewResult, e
 	var reviewResult model.ReviewResult
 	err := h.db.
 		Preload("Repository.Platform").
-		Preload("Repository.LLMModel.Provider").
-		Preload("LLMModel.Provider").
+		Preload("Repository.LLMProvider").
+		Preload("LLMProvider").
 		First(&reviewResult, payload.ReviewResultID).Error
 
 	if err != nil {
@@ -104,10 +104,10 @@ func (h *ReviewHandler) loadReviewContext(t *asynq.Task) (*model.ReviewResult, e
 		return nil, fmt.Errorf("review result not found: %w", err)
 	}
 
-	// Verify LLM model is configured
-	if reviewResult.LLMModel == nil {
-		h.log.Error("No LLM model configured", "review_id", reviewResult.ID)
-		return nil, fmt.Errorf("no LLM model configured")
+	// Verify LLM provider is configured
+	if reviewResult.LLMProvider == nil {
+		h.log.Error("No LLM provider configured", "review_id", reviewResult.ID)
+		return nil, fmt.Errorf("no LLM provider configured")
 	}
 
 	// Update status to processing
@@ -150,12 +150,11 @@ func (h *ReviewHandler) callLLMReview(review *model.ReviewResult, diff string) (
 	h.log.Info("Starting LLM code review",
 		"review_id", review.ID,
 		"repository", review.Repository.Name,
-		"llm_provider", review.LLMModel.Provider.Type)
+		"llm_provider", review.LLMProvider.Name)
 
 	// Get or create LLM client (uses pool for performance)
 	llmClient, err := llm.GetOrCreateClient(
-		review.LLMModel.Provider,
-		review.LLMModel,
+		review.LLMProvider,
 		h.encryptionKey,
 	)
 	if err != nil {
@@ -177,15 +176,15 @@ func (h *ReviewHandler) callLLMReview(review *model.ReviewResult, diff string) (
 	reviewReq := llm.ReviewRequest{
 		Diff:        diff,
 		Prompt:      prompt,
-		MaxTokens:   review.LLMModel.MaxTokens,
-		Temperature: review.LLMModel.Temperature,
-		ModelName:   review.LLMModel.ModelName,
+		MaxTokens:   4096,
+		Temperature: 0.7,
+		ModelName:   review.LLMProvider.Model,
 	}
 
 	// Call LLM API
 	h.log.Info("Calling LLM API", 
-		"provider", review.LLMModel.Provider.Type,
-		"model", review.LLMModel.ModelName)
+		"provider", review.LLMProvider.Name,
+		"model", review.LLMProvider.Model)
 
 	reviewResp, err := llmClient.Review(reviewReq)
 	if err != nil {

@@ -89,12 +89,9 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 		protected.PUT("/llm/providers/:id", llmHandler.UpdateProvider)
 		protected.DELETE("/llm/providers/:id", llmHandler.DeleteProvider)
 		protected.POST("/llm/providers/:id/test", llmHandler.TestProviderConnection)
+		protected.POST("/llm/providers/models", llmHandler.FetchAvailableModels)
 
-		// LLM Model routes
-		protected.GET("/llm/models", llmHandler.ListModels)
-		protected.POST("/llm/models", llmHandler.CreateModel)
-		protected.PUT("/llm/models/:id", llmHandler.UpdateModel)
-		protected.DELETE("/llm/models/:id", llmHandler.DeleteModel)
+		// LLM Model routes (removed - simplified to single provider layer)
 
 		// Repository routes
 		protected.GET("/repositories/gitlab", repositoryHandler.ListFromGitLab)

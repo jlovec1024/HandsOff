@@ -21,13 +21,13 @@ var globalPool = &ClientPool{}
 //
 // Key format: "{providerID}_{modelID}" ensures configuration uniqueness
 // Thread-safe: Multiple goroutines can safely call this concurrently
-func GetOrCreateClient(provider *model.LLMProvider, llmModel *model.LLMModel, encryptionKey string) (Client, error) {
-	if provider == nil || llmModel == nil {
-		return nil, fmt.Errorf("provider and model cannot be nil")
+func GetOrCreateClient(provider *model.LLMProvider, encryptionKey string) (Client, error) {
+	if provider == nil {
+		return nil, fmt.Errorf("provider cannot be nil")
 	}
 
-	// Generate cache key based on provider and model IDs
-	key := fmt.Sprintf("%d_%d", provider.ID, llmModel.ID)
+	// Generate cache key based on provider ID
+	key := fmt.Sprintf("%d", provider.ID)
 
 	// Try to get existing client from pool
 	if cached, ok := globalPool.clients.Load(key); ok {
@@ -35,7 +35,7 @@ func GetOrCreateClient(provider *model.LLMProvider, llmModel *model.LLMModel, en
 	}
 
 	// Client not in pool, create new one
-	client, err := NewClient(provider, llmModel, encryptionKey)
+	client, err := NewClient(provider, encryptionKey)
 	if err != nil {
 		return nil, err
 	}

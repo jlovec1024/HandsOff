@@ -31,15 +31,6 @@ run-worker: ## Run worker
 run: ## Run both API and worker (requires separate terminals)
 	@echo "Run 'make run-api' in one terminal and 'make run-worker' in another"
 
-seed: ## Seed database with default admin user
-	$(GO) run ./scripts/seed.go
-
-test: ## Run tests
-	$(GO) test -v -race -coverprofile=coverage.out ./...
-	$(GO) tool cover -html=coverage.out -o coverage.html
-
-test-short: ## Run tests without race detector
-	$(GO) test -v ./...
 
 lint: ## Run linter
 	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
@@ -52,28 +43,10 @@ clean: ## Clean build artifacts
 	rm -rf data/*.db
 	rm -rf temp/
 
-dev-setup: deps ## Setup development environment
-	@echo "Creating directories..."
-	mkdir -p data logs temp/git
-	@echo "Copying .env.example to .env..."
-	cp -n .env.example .env || true
-	@echo "✅ Development environment ready"
-	@echo "⚠️  Please edit .env file with your configuration"
-
-
 # Database operations
-db-migrate: ## Run database migrations
-	@echo "Auto-migration is handled by the application on startup"
-
 db-reset: ## Reset database (WARNING: deletes all data)
-	@echo "⚠️  This will delete all data. Press Ctrl+C to cancel, Enter to continue..."
-	@read
 	rm -f data/*.db
 	@echo "✅ Database reset. Run 'make seed' to create admin user."
-
-# Frontend operations (will be added in Week 1.3)
-web-install: ## Install frontend dependencies
-	cd web && npm install
 
 web-dev: ## Run frontend dev server
 	cd web && npm run dev
@@ -84,10 +57,5 @@ web-build: ## Build frontend for production
 # All-in-one commands
 all: clean deps build ## Clean, install deps, and build
 
-dev: dev-setup seed ## Full development setup
-	@echo "✅ Development setup complete!"
-	@echo "📝 Edit .env file if needed"
-	@echo "🚀 Run 'make run-api' to start the API server"
-	@echo "👷 Run 'make run-worker' to start the worker"
 
 .DEFAULT_GOAL := help

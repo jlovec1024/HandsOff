@@ -31,18 +31,22 @@ type LLMProviderFormValues = Omit<
   | "last_test_status"
   | "last_test_message"
   | "api_key"
+  | "model"
 > & {
   api_key?: string; // 编辑模式可选，创建模式必填（由表单验证保证）
+  model?: string; // 从下拉框选择的模型
 };
 
 const LLMProviders = () => {
-  const [providers, setProviders] = useState<LLMProvider[]>([]);
+  const [providers] = useState<LLMProvider[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(
     null
   );
   const [form] = Form.useForm();
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
 
   useEffect(() => {
     loadProviders();
@@ -51,13 +55,35 @@ const LLMProviders = () => {
   const loadProviders = async () => {
     setLoading(true);
     try {
-      const response = await llmApi.listProviders();
-      setProviders(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error("Failed to load providers:", error);
       message.error("加载供应商列表失败");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 获取可用模型列表
+  const handleFetchModels = async () => {
+    const baseURL = form.getFieldValue("base_url");
+    const apiKey = form.getFieldValue("api_key");
+
+    if (!baseURL || !apiKey) {
+      message.warning("请先填写 Base URL 和 API Key");
+      return;
+    }
+
+    setFetchingModels(true);
+    try {
+      const response = await llmApi.fetchModels(baseURL, apiKey);
+      setAvailableModels(response.data.models);
+      message.success(`成功获取 ${response.data.models.length} 个模型`);
+    } catch (error: any) {
+      console.error("Failed to fetch models:", error);
+      message.error(error.response?.data?.error || "获取模型列表失败");
+      setAvailableModels([]);
+    } finally {
+      setFetchingModels(false);
     }
   };
 
@@ -67,6 +93,7 @@ const LLMProviders = () => {
     form.setFieldsValue({
       is_active: true,
     });
+    setAvailableModels([]);
     setModalVisible(true);
   };
 
@@ -76,6 +103,7 @@ const LLMProviders = () => {
       ...provider,
       api_key: "", // Don't show masked key
     });
+    setAvailableModels([]);
     setModalVisible(true);
   };
 
@@ -92,11 +120,9 @@ const LLMProviders = () => {
 
   const handleTest = async (id: number) => {
     try {
-      const response = await llmApi.testProvider(id);
-      if (response.data.success) {
-        message.success(response.data.message);
-        loadProviders();
-      }
+      await llmApi.testProvider(id);
+      message.success("测试成功");
+      loadProviders();
     } catch (error) {
       console.error("Test failed:", error);
       message.error("测试供应商失败");
@@ -136,24 +162,15 @@ const LLMProviders = () => {
       key: "name",
     },
     {
-      title: "类型",
-      dataIndex: "type",
-      key: "type",
-      render: (type: string) => {
-        const colors: Record<string, string> = {
-          openai: "blue",
-          deepseek: "purple",
-          claude: "orange",
-          gemini: "green",
-        };
-        return <Tag color={colors[type] || "default"}>{type}</Tag>;
-      },
-    },
-    {
       title: "Base URL",
       dataIndex: "base_url",
       key: "base_url",
       ellipsis: true,
+    },
+    {
+      title: "模型",
+      dataIndex: "model",
+      key: "model",
     },
     {
       title: "状态",
@@ -241,23 +258,7 @@ const LLMProviders = () => {
             name="name"
             rules={[{ required: true, message: "请输入名称" }]}
           >
-            <Input placeholder="如：OpenAI, DeepSeek" />
-          </Form.Item>
-
-          <Form.Item
-            label="类型"
-            name="type"
-            rules={[{ required: true, message: "请选择类型" }]}
-          >
-            <Select
-              options={[
-                { label: "OpenAI", value: "openai" },
-                { label: "DeepSeek", value: "deepseek" },
-                { label: "Claude", value: "claude" },
-                { label: "Google Gemini", value: "gemini" },
-                { label: "Ollama", value: "ollama" },
-              ]}
-            />
+            <Input placeholder="如：OpenAI Official, DeepSeek China" />
           </Form.Item>
 
           <Form.Item
@@ -278,6 +279,44 @@ const LLMProviders = () => {
           >
             <Input.Password
               placeholder={editingProvider ? "留空则保持不变" : "输入API Key"}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="模型"
+            name="model"
+            rules={[{ required: true, message: "请选择模型" }]}
+            extra={
+              <Button
+                type="link"
+                size="small"
+                loading={fetchingModels}
+                onClick={handleFetchModels}
+                style={{ padding: 0, marginTop: 4 }}
+              >
+                {availableModels.length > 0 ? "重新获取" : "获取可用模型"}
+              </Button>
+            }
+          >
+            <Select
+              showSearch
+              placeholder="请先获取模型列表"
+              loading={fetchingModels}
+              options={availableModels.map((model) => ({
+                label: model,
+                value: model,
+              }))}
+              disabled={availableModels.length === 0}
+              filterOption={(input, option) =>
+                (option?.label ?? "")
+                  .toLowerCase()
+                  .includes(input.toLowerCase())
+              }
+              notFoundContent={
+                availableModels.length === 0
+                  ? "请先点击上方按钮获取模型列表"
+                  : "未找到匹配的模型"
+              }
             />
           </Form.Item>
 

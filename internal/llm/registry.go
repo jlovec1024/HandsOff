@@ -53,19 +53,10 @@ func ListRegisteredProviders() []string {
 // init registers default providers
 // This runs automatically when the package is imported
 func init() {
-	// Register OpenAI-compatible providers
-	RegisterProvider("openai", func(c Config) Client {
-		return NewOpenAICompatibleClient("OpenAI", c)
+	// All providers are OpenAI-compatible, use unified client
+	RegisterProvider("openai-compatible", func(c Config) Client {
+		return NewOpenAICompatibleClient("OpenAI-Compatible", c)
 	})
-	
-	RegisterProvider("deepseek", func(c Config) Client {
-		return NewOpenAICompatibleClient("DeepSeek", c)
-	})
-	
-	// Future providers can be registered here or externally:
-	// RegisterProvider("claude", func(c Config) Client {
-	//     return NewClaudeClient(c)
-	// })
 }
 
 // createClientFromRegistry creates a client using the registry

@@ -14,7 +14,7 @@ type Repository struct {
 	HTTPURL        string    `gorm:"size:500" json:"http_url"`                    // HTTP clone URL
 	SSHURL         string    `gorm:"size:500" json:"ssh_url"`                     // SSH clone URL
 	DefaultBranch  string    `gorm:"size:100" json:"default_branch"`              // e.g., "main", "master"
-	LLMModelID     *uint     `gorm:"index" json:"llm_model_id"`                   // Foreign key to llm_models (nullable)
+	LLMProviderID  *uint     `gorm:"index" json:"llm_provider_id"`                // Foreign key to llm_providers (nullable)
 	WebhookID      *int64    `json:"webhook_id"`                                  // GitLab webhook ID
 	WebhookURL     string    `gorm:"size:500" json:"webhook_url"`                 // Webhook callback URL
 	WebhookSecret  string    `gorm:"size:255" json:"-"`                           // Webhook secret token (not exposed in JSON)
@@ -26,7 +26,7 @@ type Repository struct {
 
 	// Relationships
 	Platform GitPlatformConfig `gorm:"foreignKey:PlatformID;constraint:OnDelete:CASCADE" json:"platform,omitempty"`
-	LLMModel *LLMModel         `gorm:"foreignKey:LLMModelID;constraint:OnDelete:SET NULL" json:"llm_model,omitempty"`
+	LLMProvider *LLMProvider      `gorm:"foreignKey:LLMProviderID" json:"llm_provider,omitempty"`
 }
 
 // TableName specifies the table name

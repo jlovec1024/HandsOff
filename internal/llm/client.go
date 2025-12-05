@@ -7,10 +7,10 @@ import (
 	"github.com/handsoff/handsoff/pkg/crypto"
 )
 
-// NewClient creates a new LLM client based on provider type
-func NewClient(provider *model.LLMProvider, llmModel *model.LLMModel, encryptionKey string) (Client, error) {
-	if provider == nil || llmModel == nil {
-		return nil, fmt.Errorf("provider and model cannot be nil")
+// NewClient creates a new LLM client based on provider
+func NewClient(provider *model.LLMProvider, encryptionKey string) (Client, error) {
+	if provider == nil {
+		return nil, fmt.Errorf("provider cannot be nil")
 	}
 
 	// Decrypt API key
@@ -23,13 +23,12 @@ func NewClient(provider *model.LLMProvider, llmModel *model.LLMModel, encryption
 	config := Config{
 		BaseURL:     provider.BaseURL,
 		APIKey:      apiKey,
-		ModelName:   llmModel.ModelName,
-		MaxTokens:   llmModel.MaxTokens,
-		Temperature: llmModel.Temperature,
-		Timeout:     60, // 60 seconds default
+		ModelName:   provider.Model,
+		MaxTokens:   4096,
+		Temperature: 0.7,
+		Timeout:     60,
 	}
 
-	// Use registry to create client (Open-Closed Principle)
-	// New providers can be registered without modifying this code
-	return createClientFromRegistry(provider.Type, config)
+	// All providers are OpenAI-compatible, use unified client
+	return createClientFromRegistry("openai-compatible", config)
 }

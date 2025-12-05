@@ -1,14 +1,6 @@
+import type { Repository } from "../../types";
 import { useState, useEffect } from "react";
-import {
-  Table,
-  Button,
-  Space,
-  Tag,
-  Popconfirm,
-  Select,
-  message,
-  Modal,
-} from "antd";
+import { Table, Button, Space, Modal, Select, message, Popconfirm, Tag } from "antd";
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -16,18 +8,16 @@ import {
   SettingOutlined,
 } from "@ant-design/icons";
 import { repositoryApi } from "../../api/repository";
-import { llmApi } from "../../api/llm";
-import type { Repository, LLMModel } from "../../types";
 import ImportModal from "./ImportModal";
 
 const RepositoryList = () => {
   const [repositories, setRepositories] = useState<Repository[]>([]);
-  const [models, setModels] = useState<LLMModel[]>([]);
+  const [providers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
-  const [selectedModelID, setSelectedModelID] = useState<number | null>(null);
+  const [selectedProviderID, setSelectedProviderID] = useState<number | null>(null);
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 20,
@@ -55,8 +45,6 @@ const RepositoryList = () => {
 
   const loadModels = async () => {
     try {
-      const response = await llmApi.listModels();
-      setModels(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error("Failed to load models:", error);
     }
@@ -73,7 +61,7 @@ const RepositoryList = () => {
 
   const handleConfigLLM = (repo: Repository) => {
     setSelectedRepo(repo);
-    setSelectedModelID(repo.llm_model_id || null);
+    setSelectedProviderID(repo.llm_provider_id || null);
     setConfigModalVisible(true);
   };
 
@@ -81,7 +69,7 @@ const RepositoryList = () => {
     if (!selectedRepo) return;
 
     try {
-      await repositoryApi.updateLLMModel(selectedRepo.id!, selectedModelID);
+      await repositoryApi.updateLLMProvider(selectedRepo.id!, selectedProviderID);
       message.success("LLM配置已更新");
       setConfigModalVisible(false);
       loadRepositories();
@@ -117,13 +105,6 @@ const RepositoryList = () => {
       dataIndex: "default_branch",
       key: "default_branch",
       width: 120,
-    },
-    {
-      title: "LLM模型",
-      dataIndex: ["llm_model", "display_name"],
-      key: "llm_model",
-      width: 200,
-      render: (displayName: string) => displayName || <Tag>未配置</Tag>,
     },
     {
       title: "Webhook",
@@ -211,33 +192,6 @@ const RepositoryList = () => {
         onCancel={() => setImportModalVisible(false)}
         onSuccess={handleImportSuccess}
       />
-
-      <Modal
-        title="配置LLM模型"
-        open={configModalVisible}
-        onOk={handleSaveLLMConfig}
-        onCancel={() => setConfigModalVisible(false)}
-        okText="保存"
-        cancelText="取消"
-      >
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 8 }}>仓库: {selectedRepo?.full_path}</div>
-          <Select
-            style={{ width: "100%" }}
-            placeholder="选择LLM模型"
-            value={selectedModelID}
-            onChange={setSelectedModelID}
-            allowClear
-            options={[
-              { label: "不使用LLM", value: null },
-              ...models.map((m) => ({
-                label: `${m.display_name} (${m.provider?.name})`,
-                value: m.id,
-              })),
-            ]}
-          />
-        </div>
-      </Modal>
     </div>
   );
 };

@@ -40,9 +40,9 @@ export const repositoryApi = {
   },
 
   // Update LLM model for repository
-  updateLLMModel: (id: number, llmModelID: number | null) => {
+  updateLLMProvider: (id: number, llmProviderID: number | null) => {
     return request.put<{ message: string }>(`/repositories/${id}/llm`, {
-      llm_model_id: llmModelID,
+      llm_provider_id: llmProviderID,
     });
   },
 

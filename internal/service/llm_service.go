@@ -136,15 +136,8 @@ func (s *LLMService) TestProviderConnection(id uint, projectID uint) error {
 		return fmt.Errorf("failed to decrypt API key: %w", err)
 	}
 
-	// Test connection based on provider type
-	var testErr error
-	switch provider.Type {
-	case "openai", "deepseek":
-		testErr = s.testOpenAICompatible(provider.BaseURL, decryptedKey)
-	default:
-		testErr = fmt.Errorf("unsupported provider type: %s", provider.Type)
-	}
-
+	// All providers are OpenAI-compatible, test directly
+	testErr := s.testOpenAICompatible(provider.BaseURL, decryptedKey)
 	if testErr != nil {
 		s.repo.UpdateProviderTestStatus(id, "failed", testErr.Error())
 		return testErr
@@ -161,6 +154,81 @@ func (s *LLMService) TestProviderConnection(id uint, projectID uint) error {
 	}
 
 	return nil
+}
+
+// FetchAvailableModels fetches the list of available models from LLM provider
+func (s *LLMService) FetchAvailableModels(baseURL, apiKey string) ([]string, error) {
+	// Validate parameters
+	if baseURL == "" || apiKey == "" {
+		return nil, fmt.Errorf("base URL and API key are required")
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+
+	// Create HTTP request to /v1/models
+	req, err := http.NewRequest("GET", baseURL+"/v1/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	// Send request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connection failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check status code
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// Parse response
+		var result struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("invalid API response: %w", err)
+		}
+
+		// Extract model IDs
+		models := make([]string, 0, len(result.Data))
+		for _, model := range result.Data {
+			if model.ID != "" {
+				models = append(models, model.ID)
+			}
+		}
+
+		if len(models) == 0 {
+			return nil, fmt.Errorf("no models found in response")
+		}
+
+		return models, nil
+
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return nil, fmt.Errorf("authentication failed: invalid API key or insufficient permissions")
+
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("endpoint not found: this provider may not support the /v1/models interface")
+
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable:
+		return nil, fmt.Errorf("provider service error (status %d): %s", resp.StatusCode, string(body))
+
+	default:
+		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+	}
 }
 
 // testOpenAICompatible tests OpenAI-compatible API by making a real API call
@@ -227,29 +295,4 @@ func (s *LLMService) testOpenAICompatible(baseURL, apiKey string) error {
 	return nil
 }
 
-// Model operations
 
-// ListModels returns all models
-func (s *LLMService) ListModels(providerID *uint) ([]model.LLMModel, error) {
-	return s.repo.ListModels(providerID)
-}
-
-// GetModel retrieves a model
-func (s *LLMService) GetModel(id uint) (*model.LLMModel, error) {
-	return s.repo.GetModel(id)
-}
-
-// CreateModel creates a new model
-func (s *LLMService) CreateModel(model *model.LLMModel) error {
-	return s.repo.CreateModel(model)
-}
-
-// UpdateModel updates a model
-func (s *LLMService) UpdateModel(model *model.LLMModel) error {
-	return s.repo.UpdateModel(model)
-}
-
-// DeleteModel deletes a model
-func (s *LLMService) DeleteModel(id uint) error {
-	return s.repo.DeleteModel(id)
-}

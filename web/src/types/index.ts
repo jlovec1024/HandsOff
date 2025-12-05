@@ -48,30 +48,16 @@ export interface GitPlatformConfig {
 // LLM types
 export interface LLMProvider {
   id?: number;
-  name: string;
-  type: string; // openai, deepseek, claude, etc.
+  name: string; // User-defined name, e.g., "OpenAI Official", "DeepSeek China"
   base_url: string;
   api_key: string;
+  model: string; // Model name, e.g., "gpt-4", "deepseek-chat"
   is_active: boolean;
   last_tested_at?: string;
   last_test_status?: string;
   last_test_message?: string;
   created_at?: string;
   updated_at?: string;
-}
-
-export interface LLMModel {
-  id?: number;
-  provider_id: number;
-  model_name: string;
-  display_name: string;
-  description?: string;
-  max_tokens: number;
-  temperature: number;
-  is_active: boolean;
-  created_at?: string;
-  updated_at?: string;
-  provider?: LLMProvider;
 }
 
 // Repository types
@@ -84,14 +70,14 @@ export interface Repository {
   http_url: string;
   ssh_url: string;
   default_branch: string;
-  llm_model_id?: number;
+  llm_provider_id?: number;
   webhook_id?: number;
   webhook_url: string;
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
   platform?: GitPlatformConfig;
-  llm_model?: LLMModel;
+  llm_provider?: LLMProvider;
 }
 
 export interface GitLabRepository {

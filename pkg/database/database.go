@@ -61,7 +61,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.GitPlatformConfig{},
 		&model.Repository{},
 		&model.LLMProvider{},
-		&model.LLMModel{},
 		&model.ReviewResult{},
 		&model.FixSuggestion{},
 	)
