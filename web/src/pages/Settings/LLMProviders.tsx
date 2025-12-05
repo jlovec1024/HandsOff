@@ -38,7 +38,7 @@ type LLMProviderFormValues = Omit<
 };
 
 const LLMProviders = () => {
-  const [providers] = useState<LLMProvider[]>([]);
+  const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(
@@ -55,6 +55,8 @@ const LLMProviders = () => {
   const loadProviders = async () => {
     setLoading(true);
     try {
+      const response = await llmApi.listProviders();
+      setProviders(response.data);
     } catch (error) {
       console.error("Failed to load providers:", error);
       message.error("加载供应商列表失败");
