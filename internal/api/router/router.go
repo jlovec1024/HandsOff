@@ -82,14 +82,15 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 		protected.PUT("/platform/config", platformHandler.UpdateConfig)
 		protected.POST("/platform/test", platformHandler.TestConnection)
 
-		// LLM Provider routes
-		protected.GET("/llm/providers", llmHandler.ListProviders)
-		protected.GET("/llm/providers/:id", llmHandler.GetProvider)
-		protected.POST("/llm/providers", llmHandler.CreateProvider)
-		protected.PUT("/llm/providers/:id", llmHandler.UpdateProvider)
-		protected.DELETE("/llm/providers/:id", llmHandler.DeleteProvider)
-		protected.POST("/llm/providers/:id/test", llmHandler.TestProviderConnection)
-		protected.POST("/llm/providers/models", llmHandler.FetchAvailableModels)
+	// LLM Provider routes
+	protected.GET("/llm/providers", llmHandler.ListProviders)
+	protected.GET("/llm/providers/:id", llmHandler.GetProvider)
+	protected.POST("/llm/providers", llmHandler.CreateProvider)
+	protected.PUT("/llm/providers/:id", llmHandler.UpdateProvider)
+	protected.DELETE("/llm/providers/:id", llmHandler.DeleteProvider)
+	protected.POST("/llm/providers/:id/test", llmHandler.TestProviderConnection)
+	protected.POST("/llm/providers/models", llmHandler.FetchAvailableModels)
+	protected.GET("/llm/providers/:id/models", llmHandler.FetchProviderModels)
 
 		// LLM Model routes (removed - simplified to single provider layer)
 

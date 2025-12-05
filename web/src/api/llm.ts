@@ -36,4 +36,9 @@ export const llmApi = {
       api_key: apiKey,
     });
   },
+
+  // Fetch available models using stored provider configuration (for editing)
+  fetchProviderModels: (id: number) => {
+    return request.get<{ models: string[] }>(`/llm/providers/${id}/models`);
+  },
 };

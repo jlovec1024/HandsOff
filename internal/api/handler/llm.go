@@ -206,6 +206,31 @@ func (h *LLMHandler) FetchAvailableModels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"models": models})
 }
 
+// FetchProviderModels fetches available models using stored provider configuration
+func (h *LLMHandler) FetchProviderModels(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
+		return
+	}
+
+	projectID, exists := c.Get("project_id")
+	if !exists {
+		h.log.Error("Project ID not found in context")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Project context not found"})
+		return
+	}
+
+	models, err := h.service.FetchModelsForProvider(uint(id), projectID.(uint))
+	if err != nil {
+		h.log.Error("Failed to fetch provider models", "id", id, "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"models": models})
+}
+
 // Model handlers
 
 

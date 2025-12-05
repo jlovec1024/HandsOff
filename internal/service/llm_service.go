@@ -231,6 +231,24 @@ func (s *LLMService) FetchAvailableModels(baseURL, apiKey string) ([]string, err
 	}
 }
 
+// FetchModelsForProvider fetches available models using stored provider configuration
+func (s *LLMService) FetchModelsForProvider(providerID uint, projectID uint) ([]string, error) {
+	// Get provider from database
+	provider, err := s.repo.GetProvider(providerID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("provider not found: %w", err)
+	}
+
+	// Decrypt API key
+	decryptedKey, err := s.encryptor.Decrypt(provider.APIKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt API key: %w", err)
+	}
+
+	// Use existing FetchAvailableModels logic
+	return s.FetchAvailableModels(provider.BaseURL, decryptedKey)
+}
+
 // testOpenAICompatible tests OpenAI-compatible API by making a real API call
 func (s *LLMService) testOpenAICompatible(baseURL, apiKey string) error {
 	// Validate parameters

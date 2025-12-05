@@ -67,6 +67,24 @@ const LLMProviders = () => {
 
   // 获取可用模型列表
   const handleFetchModels = async () => {
+    // 编辑模式：如果用户未输入新的 API Key，使用存储的配置
+    if (editingProvider && !form.getFieldValue("api_key")) {
+      setFetchingModels(true);
+      try {
+        const response = await llmApi.fetchProviderModels(editingProvider.id!);
+        setAvailableModels(response.data.models);
+        message.success(`成功获取 ${response.data.models.length} 个模型`);
+      } catch (error: any) {
+        console.error("Failed to fetch models:", error);
+        message.error(error.response?.data?.error || "获取模型列表失败");
+        setAvailableModels([]);
+      } finally {
+        setFetchingModels(false);
+      }
+      return;
+    }
+
+    // 创建模式或编辑模式下用户输入了新 API Key：使用表单中的配置
     const baseURL = form.getFieldValue("base_url");
     const apiKey = form.getFieldValue("api_key");
 
