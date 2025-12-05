@@ -47,6 +47,7 @@ const LLMProviders = () => {
   const [form] = Form.useForm();
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null); // 新增：追踪选中的模型
 
   useEffect(() => {
     loadProviders();
@@ -114,6 +115,7 @@ const LLMProviders = () => {
       is_active: true,
     });
     setAvailableModels([]);
+    setSelectedModel(null); // 重置选中的模型
     setModalVisible(true);
   };
 
@@ -124,6 +126,7 @@ const LLMProviders = () => {
       api_key: "", // Don't show masked key
     });
     setAvailableModels([]);
+    setSelectedModel(provider.model || null); // 设置已保存的模型
     setModalVisible(true);
   };
 
@@ -146,6 +149,45 @@ const LLMProviders = () => {
     } catch (error) {
       console.error("Test failed:", error);
       message.error("测试供应商失败");
+    }
+  };
+
+  // 测试选定的模型（弹窗内使用）
+  const handleTestModel = async () => {
+    const model = form.getFieldValue("model");
+
+    if (!model) {
+      message.warning("请先选择一个模型");
+      return;
+    }
+
+    // 编辑模式且用户未输入新 API Key：使用存储的配置测试
+    if (editingProvider && !form.getFieldValue("api_key")) {
+      try {
+        const response = await llmApi.testProvider(editingProvider.id!);
+        message.success(response.data.message || `模型 ${model} 测试成功！`);
+      } catch (error: any) {
+        console.error("Model test failed:", error);
+        message.error(error.response?.data?.error || "模型测试失败");
+      }
+      return;
+    }
+
+    // 创建模式或用户输入了新 API Key：测试临时配置
+    const baseURL = form.getFieldValue("base_url");
+    const apiKey = form.getFieldValue("api_key");
+
+    if (!baseURL || !apiKey) {
+      message.warning("请先填写 Base URL 和 API Key");
+      return;
+    }
+
+    try {
+      const response = await llmApi.testTemporaryModel(baseURL, apiKey, model);
+      message.success(response.data.message || `模型 ${model} 测试成功！`);
+    } catch (error: any) {
+      console.error("Model test failed:", error);
+      message.error(error.response?.data?.error || "模型测试失败");
     }
   };
 
@@ -306,17 +348,6 @@ const LLMProviders = () => {
             label="模型"
             name="model"
             rules={[{ required: true, message: "请选择模型" }]}
-            extra={
-              <Button
-                type="link"
-                size="small"
-                loading={fetchingModels}
-                onClick={handleFetchModels}
-                style={{ padding: 0, marginTop: 4 }}
-              >
-                {availableModels.length > 0 ? "重新获取" : "获取可用模型"}
-              </Button>
-            }
           >
             <Select
               showSearch
@@ -327,6 +358,7 @@ const LLMProviders = () => {
                 value: model,
               }))}
               disabled={availableModels.length === 0}
+              onChange={(value) => setSelectedModel(value)} // 追踪模型选择
               filterOption={(input, option) =>
                 (option?.label ?? "")
                   .toLowerCase()
@@ -334,10 +366,32 @@ const LLMProviders = () => {
               }
               notFoundContent={
                 availableModels.length === 0
-                  ? "请先点击上方按钮获取模型列表"
+                  ? "请先点击下方按钮获取模型列表"
                   : "未找到匹配的模型"
               }
             />
+          </Form.Item>
+
+          {/* 操作按钮：获取模型 + 测试 */}
+          <Form.Item>
+            <Space style={{ width: "100%" }}>
+              <Button
+                type="dashed"
+                loading={fetchingModels}
+                onClick={handleFetchModels}
+                style={{ flex: 1 }}
+              >
+                {editingProvider ? "🔄 使用已保存配置获取" : "🔄 获取模型"}
+              </Button>
+              <Button
+                type="default"
+                onClick={handleTestModel}
+                disabled={!selectedModel}
+                style={{ flex: 1 }}
+              >
+                🧪 测试
+              </Button>
+            </Space>
           </Form.Item>
 
           <Form.Item>
