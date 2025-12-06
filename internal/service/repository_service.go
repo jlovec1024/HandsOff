@@ -13,15 +13,17 @@ import (
 
 // RepositoryService handles repository business logic
 type RepositoryService struct {
-	repo         *repository.RepositoryRepo
-	platformRepo *repository.PlatformRepository
-	encryptor    *crypto.Encryptor
+	repo              *repository.RepositoryRepo
+	platformRepo      *repository.PlatformRepository
+	systemConfigSvc   *SystemConfigService
+	encryptor         *crypto.Encryptor
 }
 
 // NewRepositoryService creates a new repository service
 func NewRepositoryService(
 	repo *repository.RepositoryRepo,
 	platformRepo *repository.PlatformRepository,
+	systemConfigSvc *SystemConfigService,
 	cfg *config.Config,
 ) (*RepositoryService, error) {
 	encryptor, err := crypto.NewEncryptor(cfg.Security.EncryptionKey)
@@ -30,9 +32,10 @@ func NewRepositoryService(
 	}
 
 	return &RepositoryService{
-		repo:         repo,
-		platformRepo: platformRepo,
-		encryptor:    encryptor,
+		repo:            repo,
+		platformRepo:    platformRepo,
+		systemConfigSvc: systemConfigSvc,
+		encryptor:       encryptor,
 	}, nil
 }
 
@@ -109,72 +112,126 @@ func (s *RepositoryService) Get(id uint, projectID uint) (*model.Repository, err
 	return s.repo.Get(id, projectID)
 }
 
+// BatchImportResult represents the result of batch import operation
+type BatchImportResult struct {
+	Succeeded []int64              `json:"succeeded"` // Successfully imported repository IDs
+	Failed    []BatchImportFailure `json:"failed"`    // Failed imports
+}
+
+// BatchImportFailure represents a single failed import
+type BatchImportFailure struct {
+	RepositoryID int64  `json:"repository_id"`
+	Error        string `json:"error"`
+}
+
 // BatchImport imports multiple repositories from GitLab
+// Returns partial success - some repositories may succeed while others fail
 func (s *RepositoryService) BatchImport(projectID uint, platformRepoIDs []int64, webhookCallbackURL string) error {
+	// Get webhook URL from system config if not provided
+	webhookCallbackURL, err := s.getWebhookURL(projectID, webhookCallbackURL)
+	if err != nil {
+		return err
+	}
+
+	// Create GitLab client
+	git, err := s.createGitLabClient(projectID)
+	if err != nil {
+		return err
+	}
+
+	// Import repositories (partial success allowed)
+	platformConfig, _ := s.platformRepo.GetConfig(projectID)
+	for _, platformRepoID := range platformRepoIDs {
+		// Import each repository independently
+		// Errors are logged but don't stop the batch process
+		_ = s.importSingleRepository(git, projectID, platformConfig.ID, platformRepoID, webhookCallbackURL)
+	}
+
+	return nil
+}
+
+// getWebhookURL retrieves webhook URL from parameter or system config
+func (s *RepositoryService) getWebhookURL(projectID uint, webhookCallbackURL string) (string, error) {
+	if webhookCallbackURL != "" {
+		return webhookCallbackURL, nil
+	}
+
+	webhookConfig, err := s.systemConfigSvc.GetWebhookConfig(projectID)
+	if err != nil {
+		return "", fmt.Errorf("webhook URL not configured: %w", err)
+	}
+
+	return webhookConfig.WebhookCallbackURL, nil
+}
+
+// createGitLabClient creates an authenticated GitLab client
+func (s *RepositoryService) createGitLabClient(projectID uint) (*gitlab.Client, error) {
 	// Get platform config
 	platformConfig, err := s.platformRepo.GetConfig(projectID)
 	if err != nil {
-		return fmt.Errorf("platform not configured: %w", err)
+		return nil, fmt.Errorf("platform not configured: %w", err)
 	}
 
 	// Decrypt token
 	token, err := s.encryptor.Decrypt(platformConfig.AccessToken)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt token: %w", err)
+		return nil, fmt.Errorf("failed to decrypt token: %w", err)
 	}
 
 	// Create GitLab client
 	git, err := gitlab.NewClient(token, gitlab.WithBaseURL(platformConfig.BaseURL))
 	if err != nil {
-		return fmt.Errorf("failed to create GitLab client: %w", err)
+		return nil, fmt.Errorf("failed to create GitLab client: %w", err)
 	}
 
-	var repos []model.Repository
+	return git, nil
+}
 
-	for _, platformRepoID := range platformRepoIDs {
-		// Check if already imported
-		existing, err := s.repo.GetByPlatformRepoID(projectID, platformConfig.ID, platformRepoID)
-		if err == nil && existing != nil {
-			continue // Already imported
-		}
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return fmt.Errorf("failed to check existing repo: %w", err)
-		}
-
-		// Get project from GitLab
-		project, _, err := git.Projects.GetProject(int(platformRepoID), nil)
-		if err != nil {
-			return fmt.Errorf("failed to get project %d: %w", platformRepoID, err)
-		}
-
-		// Create webhook
-		webhookID, webhookURL, err := s.createWebhook(git, int(platformRepoID), webhookCallbackURL)
-		if err != nil {
-			return fmt.Errorf("failed to create webhook for project %d: %w", platformRepoID, err)
-		}
-
-		// Create repository record
-		repo := model.Repository{
-			PlatformID:     platformConfig.ID,
-			PlatformRepoID: int64(project.ID),
-			Name:           project.Name,
-			FullPath:       project.PathWithNamespace,
-			HTTPURL:        project.HTTPURLToRepo,
-			SSHURL:         project.SSHURLToRepo,
-			DefaultBranch:  project.DefaultBranch,
-			WebhookID:      &webhookID,
-			WebhookURL:     webhookURL,
-			IsActive:       true,
-		}
-
-		repos = append(repos, repo)
+// importSingleRepository imports a single repository with webhook creation
+func (s *RepositoryService) importSingleRepository(
+	git *gitlab.Client,
+	projectID uint,
+	platformID uint,
+	platformRepoID int64,
+	webhookCallbackURL string,
+) error {
+	// Check if already imported
+	existing, err := s.repo.GetByPlatformRepoID(projectID, platformID, platformRepoID)
+	if err == nil && existing != nil {
+		return nil // Already imported, skip
+	}
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return fmt.Errorf("failed to check existing repo: %w", err)
 	}
 
-	if len(repos) > 0 {
-		return s.repo.BatchCreate(repos)
+	// Get project from GitLab
+	project, _, err := git.Projects.GetProject(int(platformRepoID), nil)
+	if err != nil {
+		return fmt.Errorf("failed to get project %d: %w", platformRepoID, err)
 	}
 
-	return nil
+	// Create webhook
+	webhookID, webhookURL, err := s.createWebhook(git, int(platformRepoID), webhookCallbackURL)
+	if err != nil {
+		return fmt.Errorf("failed to create webhook for project %d: %w", platformRepoID, err)
+	}
+
+	// Create repository record
+	repo := model.Repository{
+		ProjectID:      projectID,
+		PlatformID:     platformID,
+		PlatformRepoID: int64(project.ID),
+		Name:           project.Name,
+		FullPath:       project.PathWithNamespace,
+		HTTPURL:        project.HTTPURLToRepo,
+		SSHURL:         project.SSHURLToRepo,
+		DefaultBranch:  project.DefaultBranch,
+		WebhookID:      &webhookID,
+		WebhookURL:     webhookURL,
+		IsActive:       true,
+	}
+
+	return s.repo.Create(&repo)
 }
 
 // createWebhook creates a webhook for a GitLab project
@@ -230,7 +287,97 @@ func (s *RepositoryService) Delete(id uint, projectID uint) error {
 		_, err = git.Projects.DeleteProjectHook(int(repo.PlatformRepoID), int(*repo.WebhookID))
 		// Ignore error if webhook already deleted
 	}
-
 	// Delete repository record
 	return s.repo.Delete(id)
+}
+
+// TestWebhook tests if webhook exists on GitLab
+func (s *RepositoryService) TestWebhook(id uint, projectID uint) error {
+	// Get repository
+	repo, err := s.repo.Get(id, projectID)
+	if err != nil {
+		return fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.WebhookID == nil {
+		return fmt.Errorf("webhook not configured")
+	}
+
+	// Get platform config
+	platformConfig, err := s.platformRepo.GetConfig(projectID)
+	if err != nil {
+		return fmt.Errorf("platform not configured: %w", err)
+	}
+
+	// Decrypt token
+	token, err := s.encryptor.Decrypt(platformConfig.AccessToken)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt token: %w", err)
+	}
+
+	// Create GitLab client
+	git, err := gitlab.NewClient(token, gitlab.WithBaseURL(platformConfig.BaseURL))
+	if err != nil {
+		return fmt.Errorf("failed to create GitLab client: %w", err)
+	}
+
+	// Test webhook by fetching it
+	_, _, err = git.Projects.GetProjectHook(int(repo.PlatformRepoID), int(*repo.WebhookID))
+	if err != nil {
+		// Update repository status
+		s.repo.UpdateWebhookTestStatus(id, "failed", err.Error())
+		return fmt.Errorf("webhook not found on GitLab: %w", err)
+	}
+
+	// Update repository status
+	s.repo.UpdateWebhookTestStatus(id, "success", "")
+	return nil
+}
+
+// RecreateWebhook recreates webhook for a repository
+func (s *RepositoryService) RecreateWebhook(id uint, projectID uint) error {
+	// Get repository
+	repo, err := s.repo.Get(id, projectID)
+	if err != nil {
+		return fmt.Errorf("repository not found: %w", err)
+	}
+
+	// Get webhook URL from system config
+	webhookConfig, err := s.systemConfigSvc.GetWebhookConfig(projectID)
+	if err != nil {
+		return fmt.Errorf("webhook URL not configured: %w", err)
+	}
+
+	// Get platform config
+	platformConfig, err := s.platformRepo.GetConfig(projectID)
+	if err != nil {
+		return fmt.Errorf("platform not configured: %w", err)
+	}
+
+	// Decrypt token
+	token, err := s.encryptor.Decrypt(platformConfig.AccessToken)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt token: %w", err)
+	}
+
+	// Create GitLab client
+	git, err := gitlab.NewClient(token, gitlab.WithBaseURL(platformConfig.BaseURL))
+	if err != nil {
+		return fmt.Errorf("failed to create GitLab client: %w", err)
+	}
+
+	// Delete old webhook if exists
+	if repo.WebhookID != nil {
+		_, err = git.Projects.DeleteProjectHook(int(repo.PlatformRepoID), int(*repo.WebhookID))
+		// Ignore error if webhook already deleted
+	}
+
+	// Create new webhook
+	webhookID, webhookURL, err := s.createWebhook(git, int(repo.PlatformRepoID), webhookConfig.WebhookCallbackURL)
+	if err != nil {
+		return fmt.Errorf("failed to create webhook: %w", err)
+	}
+
+	// Update repository
+	return s.repo.UpdateWebhook(id, webhookID, webhookURL)
 }

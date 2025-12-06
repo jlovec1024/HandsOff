@@ -108,13 +108,14 @@ func (h *RepositoryHandler) Get(c *gin.Context) {
 // BatchImportRequest represents batch import request
 type BatchImportRequest struct {
 	RepositoryIDs      []int64 `json:"repository_ids" binding:"required"`
-	WebhookCallbackURL string  `json:"webhook_callback_url" binding:"required"`
+	WebhookCallbackURL string  `json:"webhook_callback_url"` // Optional: will use system config if empty
 }
 
 // BatchImport imports multiple repositories from GitLab
 func (h *RepositoryHandler) BatchImport(c *gin.Context) {
 	var req BatchImportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		h.log.Error("Failed to bind JSON", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
@@ -196,4 +197,60 @@ func (h *RepositoryHandler) Delete(c *gin.Context) {
 
 	h.log.Info("Repository deleted", "id", id)
 	c.JSON(http.StatusOK, gin.H{"message": "Repository deleted successfully"})
+}
+
+// TestWebhook tests webhook for a repository
+func (h *RepositoryHandler) TestWebhook(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository ID"})
+		return
+	}
+
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	if err := h.service.TestWebhook(uint(id), projectID); err != nil {
+		h.log.Error("Failed to test webhook", "error", err)
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "failed",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	h.log.Info("Webhook tested successfully", "id", id)
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "Webhook exists and is valid",
+	})
+}
+
+// RecreateWebhook recreates webhook for a repository
+func (h *RepositoryHandler) RecreateWebhook(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository ID"})
+		return
+	}
+
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error("Project ID missing from context - middleware failure")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+		return
+	}
+
+	if err := h.service.RecreateWebhook(uint(id), projectID); err != nil {
+		h.log.Error("Failed to recreate webhook", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.log.Info("Webhook recreated successfully", "id", id)
+	c.JSON(http.StatusOK, gin.H{"message": "Webhook recreated successfully"})
 }

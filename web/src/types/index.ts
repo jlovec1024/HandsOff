@@ -60,6 +60,11 @@ export interface LLMProvider {
   updated_at?: string;
 }
 
+// System Configuration types
+export interface SystemWebhookConfig {
+  webhook_callback_url: string;
+}
+
 // Repository types
 export interface Repository {
   id?: number;
@@ -74,6 +79,12 @@ export interface Repository {
   webhook_id?: number;
   webhook_url: string;
   is_active: boolean;
+
+  // Webhook status tracking
+  last_webhook_test_at?: string;
+  last_webhook_test_status?: "success" | "failed" | "never";
+  last_webhook_test_error?: string;
+
   created_at?: string;
   updated_at?: string;
   platform?: GitPlatformConfig;

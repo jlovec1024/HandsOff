@@ -45,7 +45,9 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 		log.Fatal("Failed to create LLM service", "error", err)
 	}
 
-	repositoryService, err := service.NewRepositoryService(repositoryRepo, platformRepo, cfg)
+	systemConfigService := service.NewSystemConfigService(db)
+
+	repositoryService, err := service.NewRepositoryService(repositoryRepo, platformRepo, systemConfigService, cfg)
 	if err != nil {
 		log.Fatal("Failed to create repository service", "error", err)
 	}
@@ -59,6 +61,7 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 	platformHandler := handler.NewPlatformHandler(platformService, db, log)
 	llmHandler := handler.NewLLMHandler(llmService, db, log)
 	repositoryHandler := handler.NewRepositoryHandler(repositoryService, db, log)
+	systemConfigHandler := handler.NewSystemConfigHandler(systemConfigService, log)
 	webhookHandler := handler.NewWebhookHandler(db, log, queueClient)
 	reviewHandler := handler.NewReviewHandler(db, log)
 
@@ -82,6 +85,10 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 		protected.PUT("/platform/config", platformHandler.UpdateConfig)
 		protected.POST("/platform/test", platformHandler.TestConnection)
 
+		// System Configuration routes
+		protected.GET("/system/webhook", systemConfigHandler.GetWebhookConfig)
+		protected.PUT("/system/webhook", systemConfigHandler.UpdateWebhookConfig)
+
 	// LLM Provider routes
 	protected.GET("/llm/providers", llmHandler.ListProviders)
 	protected.GET("/llm/providers/:id", llmHandler.GetProvider)
@@ -102,6 +109,8 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 		protected.POST("/repositories/batch", repositoryHandler.BatchImport)
 		protected.PUT("/repositories/:id/llm", repositoryHandler.UpdateLLMModel)
 		protected.DELETE("/repositories/:id", repositoryHandler.Delete)
+		protected.POST("/repositories/:id/webhook/test", repositoryHandler.TestWebhook)
+		protected.PUT("/repositories/:id/webhook", repositoryHandler.RecreateWebhook)
 		protected.GET("/repositories/:id/statistics", reviewHandler.GetRepositoryStatistics)
 
 		// Review routes

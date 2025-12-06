@@ -117,7 +117,7 @@ func (h *WebhookHandler) parseAndValidateWebhook(c *gin.Context) (*webhook.GitLa
 // findAndValidateRepository finds repository and validates webhook signature
 func (h *WebhookHandler) findAndValidateRepository(mrEvent *webhook.GitLabMergeRequestEvent) (*model.Repository, error) {
 	var repo model.Repository
-	err := h.db.Preload("LLMModel").
+	err := h.db.Preload("LLMProvider").
 		Where("platform_repo_id = ? AND is_active = ?", mrEvent.GetProjectID(), true).
 		First(&repo).Error
 
@@ -127,6 +127,7 @@ func (h *WebhookHandler) findAndValidateRepository(mrEvent *webhook.GitLabMergeR
 			"mr_id", mrEvent.GetMRID())
 		return nil, fmt.Errorf("repository not found")
 	}
+
 
 	if err != nil {
 		h.log.Error("Failed to query repository", "error", err)

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Modal, Table, Input, message, Spin } from "antd";
+import { Modal, Table, message, Spin, Alert } from "antd";
 import type { TableColumnsType } from "antd";
 import { repositoryApi } from "../../api/repository";
+import { systemApi } from "../../api/system";
 import type { GitLabRepository } from "../../types";
 
 interface ImportModalProps {
@@ -15,9 +16,7 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
   const [loading, setLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [importing, setImporting] = useState(false);
-  const [webhookURL, setWebhookURL] = useState(
-    "http://your-server.com/api/webhook"
-  );
+  const [systemWebhookUrl, setSystemWebhookUrl] = useState("");
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 20,
@@ -26,9 +25,20 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
 
   useEffect(() => {
     if (visible) {
+      loadSystemWebhookUrl();
       loadRepositories();
     }
   }, [visible]);
+
+  const loadSystemWebhookUrl = async () => {
+    try {
+      const response = await systemApi.getWebhookConfig();
+      setSystemWebhookUrl(response.data.webhook_callback_url);
+    } catch (error) {
+      console.error("Failed to load system webhook URL:", error);
+      message.warning("未配置系统 Webhook URL，请先在系统设置中配置");
+    }
+  };
 
   const loadRepositories = async (page: number = 1) => {
     setLoading(true);
@@ -58,20 +68,22 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
       return;
     }
 
-    if (!webhookURL) {
-      message.warning("请输入Webhook回调URL");
+    if (!systemWebhookUrl) {
+      message.error("系统 Webhook URL 未配置，请先在系统设置中配置");
       return;
     }
 
     setImporting(true);
     try {
       const repositoryIDs = selectedRowKeys.map((key) => Number(key));
-      await repositoryApi.batchImport(repositoryIDs, webhookURL);
+      // Pass empty string, backend will use system config
+      await repositoryApi.batchImport(repositoryIDs, "");
       message.success(`成功导入 ${selectedRowKeys.length} 个仓库`);
       setSelectedRowKeys([]);
       onSuccess();
     } catch (error) {
       console.error("Failed to import repositories:", error);
+      message.error("导入仓库失败");
     } finally {
       setImporting(false);
     }
@@ -119,17 +131,61 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
       width={800}
       confirmLoading={importing}
     >
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ marginBottom: 8 }}>Webhook回调URL:</div>
-        <Input
-          value={webhookURL}
-          onChange={(e) => setWebhookURL(e.target.value)}
-          placeholder="http://your-server.com/api/webhook"
+      {systemWebhookUrl ? (
+        <Alert
+          message="系统 Webhook 配置"
+          description={
+            <div>
+              <div style={{ marginBottom: 4 }}>将使用系统默认 Webhook URL:</div>
+              <code
+                style={{
+                  fontSize: 12,
+                  padding: "2px 6px",
+                  background: "#f5f5f5",
+                  borderRadius: 3,
+                }}
+              >
+                {systemWebhookUrl}
+              </code>
+              <a
+                href="/settings"
+                style={{ marginLeft: 12, fontSize: 12 }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.open("/settings", "_blank");
+                }}
+              >
+                在系统设置中修改
+              </a>
+            </div>
+          }
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
         />
-        <div style={{ marginTop: 4, fontSize: 12, color: "#999" }}>
-          导入时将自动为每个仓库配置此Webhook URL
-        </div>
-      </div>
+      ) : (
+        <Alert
+          message="未配置系统 Webhook URL"
+          description={
+            <div>
+              请先在{" "}
+              <a
+                href="/settings"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.open("/settings", "_blank");
+                }}
+              >
+                系统设置
+              </a>{" "}
+              中配置 Webhook URL
+            </div>
+          }
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       <Spin spinning={loading}>
         <Table

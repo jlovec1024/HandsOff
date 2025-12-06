@@ -1,5 +1,5 @@
-import request from './request';
-import type { Repository, GitLabRepository } from '../types';
+import request from "./request";
+import type { Repository, GitLabRepository } from "../types";
 
 export const repositoryApi = {
   // List repositories from GitLab
@@ -9,7 +9,7 @@ export const repositoryApi = {
       page: number;
       per_page: number;
       total_pages: number;
-    }>('/repositories/gitlab', {
+    }>("/repositories/gitlab", {
       params: { page, per_page: perPage },
     });
   },
@@ -21,7 +21,7 @@ export const repositoryApi = {
       page: number;
       page_size: number;
       total: number;
-    }>('/repositories', {
+    }>("/repositories", {
       params: { page, page_size: pageSize },
     });
   },
@@ -33,13 +33,16 @@ export const repositoryApi = {
 
   // Batch import repositories
   batchImport: (repositoryIDs: number[], webhookCallbackURL: string) => {
-    return request.post<{ message: string; count: number }>('/repositories/batch', {
-      repository_ids: repositoryIDs,
-      webhook_callback_url: webhookCallbackURL,
-    });
+    return request.post<{ message: string; count: number }>(
+      "/repositories/batch",
+      {
+        repository_ids: repositoryIDs,
+        webhook_callback_url: webhookCallbackURL,
+      }
+    );
   },
 
-  // Update LLM model for repository
+  // Update LLM provider for repository
   updateLLMProvider: (id: number, llmProviderID: number | null) => {
     return request.put<{ message: string }>(`/repositories/${id}/llm`, {
       llm_provider_id: llmProviderID,
@@ -49,5 +52,17 @@ export const repositoryApi = {
   // Delete repository
   delete: (id: number) => {
     return request.delete<{ message: string }>(`/repositories/${id}`);
+  },
+
+  // Test webhook for repository
+  testWebhook: (id: number) => {
+    return request.post<{ status: string; message: string }>(
+      `/repositories/${id}/webhook/test`
+    );
+  },
+
+  // Recreate webhook for repository
+  recreateWebhook: (id: number) => {
+    return request.put<{ message: string }>(`/repositories/${id}/webhook`);
   },
 };

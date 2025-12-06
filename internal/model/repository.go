@@ -2,6 +2,13 @@ package model
 
 import "time"
 
+// Webhook test status constants
+const (
+	WebhookTestStatusNever   = "never"
+	WebhookTestStatusSuccess = "success"
+	WebhookTestStatusFailed  = "failed"
+)
+
 // Repository represents a Git repository (project-scoped)
 type Repository struct {
 	ID             uint      `gorm:"primarykey" json:"id"`
@@ -19,6 +26,11 @@ type Repository struct {
 	WebhookURL     string    `gorm:"size:500" json:"webhook_url"`                 // Webhook callback URL
 	WebhookSecret  string    `gorm:"size:255" json:"-"`                           // Webhook secret token (not exposed in JSON)
 	IsActive       bool      `gorm:"default:true;not null;index" json:"is_active"`
+
+	// Webhook status tracking
+	LastWebhookTestAt     *time.Time `json:"last_webhook_test_at"`                           // Last webhook test time
+	LastWebhookTestStatus string     `gorm:"size:20;default:'never'" json:"last_webhook_test_status"` // success, failed, never
+	LastWebhookTestError  string     `gorm:"type:text" json:"last_webhook_test_error"`       // Error message if failed
 
 	// Project Relationship
 	ProjectID uint    `gorm:"not null;index;constraint:OnDelete:CASCADE" json:"project_id"`

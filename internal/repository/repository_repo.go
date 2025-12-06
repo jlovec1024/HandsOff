@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"time"
+
 	"github.com/handsoff/handsoff/internal/model"
 	"gorm.io/gorm"
 )
@@ -9,10 +11,14 @@ import (
 type RepositoryRepo struct {
 	db *gorm.DB
 }
-
 // NewRepositoryRepo creates a new repository repo
 func NewRepositoryRepo(db *gorm.DB) *RepositoryRepo {
 	return &RepositoryRepo{db: db}
+}
+
+// withRelations preloads common relationships for repository queries
+func (r *RepositoryRepo) withRelations(db *gorm.DB) *gorm.DB {
+	return db.Preload("Platform").Preload("LLMProvider")
 }
 
 // List returns all repositories with pagination for a specific project
@@ -27,8 +33,7 @@ func (r *RepositoryRepo) List(projectID uint, page, pageSize int) ([]model.Repos
 
 	// Get paginated results
 	offset := (page - 1) * pageSize
-	err := r.db.Where("project_id = ?", projectID).
-		Preload("Platform").Preload("LLMModel").
+	err := r.withRelations(r.db).Where("project_id = ?", projectID).
 		Order("created_at DESC").
 		Offset(offset).Limit(pageSize).
 		Find(&repos).Error
@@ -39,8 +44,7 @@ func (r *RepositoryRepo) List(projectID uint, page, pageSize int) ([]model.Repos
 // FindByProjectID retrieves all repositories for a project (no pagination)
 func (r *RepositoryRepo) FindByProjectID(projectID uint) ([]model.Repository, error) {
 	var repos []model.Repository
-	err := r.db.Where("project_id = ?", projectID).
-		Preload("Platform").Preload("LLMModel").
+	err := r.withRelations(r.db).Where("project_id = ?", projectID).
 		Order("created_at DESC").
 		Find(&repos).Error
 	return repos, err
@@ -49,8 +53,7 @@ func (r *RepositoryRepo) FindByProjectID(projectID uint) ([]model.Repository, er
 // Get retrieves a repository by ID with project validation
 func (r *RepositoryRepo) Get(id uint, projectID uint) (*model.Repository, error) {
 	var repo model.Repository
-	err := r.db.Where("id = ? AND project_id = ?", id, projectID).
-		Preload("Platform").Preload("LLMModel").
+	err := r.withRelations(r.db).Where("id = ? AND project_id = ?", id, projectID).
 		First(&repo).Error
 	if err != nil {
 		return nil, err
@@ -62,11 +65,10 @@ func (r *RepositoryRepo) Get(id uint, projectID uint) (*model.Repository, error)
 //
 // ⚠️ SECURITY WARNING: This method bypasses project isolation!
 // Only use for system-level operations where project context is not available:
-//   - Webhook handlers (incoming events from Git platforms)
-//   - Background job processors (async tasks)
-//   - Internal service-to-service calls
+// - Webhook handlers (incoming events from Git platforms)
+// - Background jobs (scheduled tasks)
+// - System migrations
 //
-// ❌ DO NOT USE for user-facing API endpoints!
 // ✅ For user requests, use Get(id, projectID) instead to enforce project isolation.
 //
 // Example valid usage:
@@ -80,12 +82,13 @@ func (r *RepositoryRepo) Get(id uint, projectID uint) (*model.Repository, error)
 //   }
 func (r *RepositoryRepo) GetByID(id uint) (*model.Repository, error) {
 	var repo model.Repository
-	err := r.db.Preload("Platform").Preload("LLMModel").First(&repo, id).Error
+	err := r.withRelations(r.db).First(&repo, id).Error
 	if err != nil {
 		return nil, err
 	}
 	return &repo, nil
 }
+
 
 // GetByPlatformRepoID retrieves a repository by platform repo ID with project scope
 func (r *RepositoryRepo) GetByPlatformRepoID(projectID uint, platformID uint, platformRepoID int64) (*model.Repository, error) {
@@ -124,10 +127,24 @@ func (r *RepositoryRepo) UpdateLLMModel(id uint, llmModelID *uint) error {
 }
 
 // UpdateWebhook updates webhook information
-func (r *RepositoryRepo) UpdateWebhook(id uint, webhookID *int64, webhookURL string) error {
+func (r *RepositoryRepo) UpdateWebhook(id uint, webhookID int64, webhookURL string) error {
 	updates := map[string]interface{}{
-		"webhook_id":  webhookID,
-		"webhook_url": webhookURL,
+		"webhook_id":                &webhookID,
+		"webhook_url":               webhookURL,
+		"last_webhook_test_status":  model.WebhookTestStatusSuccess,
+		"last_webhook_test_at":      time.Now(),
+		"last_webhook_test_error":   "",
 	}
 	return r.db.Model(&model.Repository{}).Where("id = ?", id).Updates(updates).Error
 }
+
+// UpdateWebhookTestStatus updates webhook test status
+func (r *RepositoryRepo) UpdateWebhookTestStatus(id uint, status string, errorMsg string) error {
+	updates := map[string]interface{}{
+		"last_webhook_test_status": status,
+		"last_webhook_test_at":     time.Now(),
+		"last_webhook_test_error":  errorMsg,
+	}
+	return r.db.Model(&model.Repository{}).Where("id = ?", id).Updates(updates).Error
+}
+
