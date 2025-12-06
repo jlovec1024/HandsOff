@@ -7,6 +7,9 @@ WORKER_BINARY=bin/$(APP_NAME)-worker
 GO=go
 GOFLAGS=-v
 
+API_PORT=$(shell grep API_PORT .env | cut -d'=' -f2)
+
+
 help: ## Show this help
 	@echo "Available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -23,7 +26,10 @@ build: ## Build all binaries
 	@echo "✅ Build completed"
 
 run-api: ## Run API server
-	$(GO) run ./cmd/api/main.go
+	@echo "Found port $(API_PORT), attempting to kill existing process..."
+	@fuser -k "$(API_PORT)/tcp" || true
+	@echo "Starting API server on port $(API_PORT)..."
+	@$(GO) run ./cmd/api/main.go
 
 run-worker: ## Run worker
 	$(GO) run ./cmd/worker/main.go
