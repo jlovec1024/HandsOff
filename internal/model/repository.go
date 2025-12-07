@@ -2,11 +2,17 @@ package model
 
 import "time"
 
-// Webhook test status constants
+// Webhook status constants - Core state machine
 const (
-	WebhookTestStatusNever   = "never"
-	WebhookTestStatusSuccess = "success"
-	WebhookTestStatusFailed  = "failed"
+	WebhookStatusNotConfigured = "not_configured" // 未配置（webhook_id = NULL）
+	WebhookStatusActive        = "active"         // 已激活（webhook 存在且有效）
+	WebhookStatusInactive      = "inactive"       // 已失效（webhook 在 GitLab 上不存在）
+)
+
+// Webhook test result constants (for detailed diagnostics)
+const (
+	WebhookTestResultSuccess = "success" // 测试成功
+	WebhookTestResultFailed  = "failed"  // 测试失败
 )
 
 // Repository represents a Git repository (project-scoped)
@@ -27,10 +33,13 @@ type Repository struct {
 	WebhookSecret  string    `gorm:"size:255" json:"-"`                           // Webhook secret token (not exposed in JSON)
 	IsActive       bool      `gorm:"default:true;not null;index" json:"is_active"`
 
-	// Webhook status tracking
-	LastWebhookTestAt     *time.Time `json:"last_webhook_test_at"`                           // Last webhook test time
-	LastWebhookTestStatus string     `gorm:"size:20;default:'never'" json:"last_webhook_test_status"` // success, failed, never
-	LastWebhookTestError  string     `gorm:"type:text" json:"last_webhook_test_error"`       // Error message if failed
+	// Webhook core status (主状态字段)
+	WebhookStatus string `gorm:"size:30;default:'not_configured';not null;index" json:"webhook_status"` // not_configured, configuring, active, inactive, unknown
+
+	// Webhook test details (测试历史，用于详细诊断)
+	LastWebhookTestAt     *time.Time `json:"last_webhook_test_at"`                    // Last webhook test time
+	LastWebhookTestStatus string     `gorm:"size:30;default:''" json:"last_webhook_test_status"` // success, failed, ""
+	LastWebhookTestError  string     `gorm:"type:text" json:"last_webhook_test_error"` // Error message if failed
 
 	// Project Relationship
 	ProjectID uint    `gorm:"not null;index;constraint:OnDelete:CASCADE" json:"project_id"`

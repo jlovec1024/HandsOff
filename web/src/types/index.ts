@@ -80,9 +80,12 @@ export interface Repository {
   webhook_url: string;
   is_active: boolean;
 
-  // Webhook status tracking
+  // Webhook core status (主状态字段)
+  webhook_status?: "not_configured" | "active" | "inactive";
+
+  // Webhook test details (测试历史，用于详细诊断)
   last_webhook_test_at?: string;
-  last_webhook_test_status?: "success" | "failed" | "never";
+  last_webhook_test_status?: "success" | "failed" | "";
   last_webhook_test_error?: string;
 
   created_at?: string;

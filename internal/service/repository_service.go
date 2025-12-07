@@ -8,7 +8,6 @@ import (
 	"github.com/handsoff/handsoff/pkg/config"
 	"github.com/handsoff/handsoff/pkg/crypto"
 	"github.com/xanzy/go-gitlab"
-	"gorm.io/gorm"
 )
 
 // RepositoryService handles repository business logic
@@ -195,29 +194,86 @@ func (s *RepositoryService) importSingleRepository(
 	platformRepoID int64,
 	webhookCallbackURL string,
 ) error {
-	// Check if already imported
+	// Step 1: Check if already imported
+	if s.alreadyImported(projectID, platformID, platformRepoID) {
+		return nil
+	}
+
+	// Step 2: Fetch GitLab project information
+	project, err := s.fetchGitLabProject(git, platformRepoID)
+	if err != nil {
+		return err
+	}
+
+	// Step 3: Ensure webhook exists (find existing or create new)
+	webhookID, webhookURL, err := s.ensureWebhook(git, platformRepoID, webhookCallbackURL)
+	if err != nil {
+		return err
+	}
+
+	// Step 4: Create repository record in database
+	repoID, err := s.createRepositoryRecord(projectID, platformID, project, webhookID, webhookURL)
+	if err != nil {
+		return err
+	}
+
+	// Step 5: Test webhook immediately after import (async, don't block import)
+	go func() {
+		_ = s.TestWebhook(repoID, projectID)
+	}()
+
+	return nil
+}
+
+// alreadyImported checks if repository already exists in local database
+func (s *RepositoryService) alreadyImported(projectID uint, platformID uint, platformRepoID int64) bool {
 	existing, err := s.repo.GetByPlatformRepoID(projectID, platformID, platformRepoID)
 	if err == nil && existing != nil {
-		return nil // Already imported, skip
+		return true // Already imported
 	}
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return fmt.Errorf("failed to check existing repo: %w", err)
-	}
+	return false
+}
 
-	// Get project from GitLab
+// fetchGitLabProject retrieves project information from GitLab
+func (s *RepositoryService) fetchGitLabProject(git *gitlab.Client, platformRepoID int64) (*gitlab.Project, error) {
 	project, _, err := git.Projects.GetProject(int(platformRepoID), nil)
 	if err != nil {
-		return fmt.Errorf("failed to get project %d: %w", platformRepoID, err)
+		return nil, fmt.Errorf("failed to get project %d: %w", platformRepoID, err)
 	}
+	return project, nil
+}
 
-	// Create webhook
-	webhookID, webhookURL, err := s.createWebhook(git, int(platformRepoID), webhookCallbackURL)
+// ensureWebhook ensures webhook exists (finds existing or creates new)
+func (s *RepositoryService) ensureWebhook(git *gitlab.Client, platformRepoID int64, callbackURL string) (int64, string, error) {
+	// Try to find existing webhook first
+	webhookID, webhookURL, err := s.findExistingWebhook(git, int(platformRepoID), callbackURL)
 	if err != nil {
-		return fmt.Errorf("failed to create webhook for project %d: %w", platformRepoID, err)
+		return 0, "", fmt.Errorf("failed to check existing webhook: %w", err)
 	}
 
-	// Create repository record
-	repo := model.Repository{
+	// If found, return it
+	if webhookID != 0 {
+		return webhookID, webhookURL, nil
+	}
+
+	// Otherwise, create new webhook
+	webhookID, webhookURL, err = s.createWebhook(git, int(platformRepoID), callbackURL)
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to create webhook for project %d: %w", platformRepoID, err)
+	}
+
+	return webhookID, webhookURL, nil
+}
+
+// createRepositoryRecord creates repository record in database
+func (s *RepositoryService) createRepositoryRecord(
+	projectID uint,
+	platformID uint,
+	project *gitlab.Project,
+	webhookID int64,
+	webhookURL string,
+) (uint, error) {
+	repo := &model.Repository{
 		ProjectID:      projectID,
 		PlatformID:     platformID,
 		PlatformRepoID: int64(project.ID),
@@ -228,10 +284,15 @@ func (s *RepositoryService) importSingleRepository(
 		DefaultBranch:  project.DefaultBranch,
 		WebhookID:      &webhookID,
 		WebhookURL:     webhookURL,
+		WebhookStatus:  model.WebhookStatusNotConfigured, // Will be tested immediately after creation
 		IsActive:       true,
 	}
 
-	return s.repo.Create(&repo)
+	if err := s.repo.Create(repo); err != nil {
+		return 0, fmt.Errorf("failed to create repository: %w", err)
+	}
+
+	return repo.ID, nil
 }
 
 // createWebhook creates a webhook for a GitLab project
@@ -249,6 +310,26 @@ func (s *RepositoryService) createWebhook(git *gitlab.Client, projectID int, cal
 	}
 
 	return int64(hook.ID), hook.URL, nil
+}
+
+// findExistingWebhook searches for an existing webhook with the same callback URL
+// Returns webhook ID and URL if found, or (0, "", nil) if not found
+func (s *RepositoryService) findExistingWebhook(git *gitlab.Client, projectID int, callbackURL string) (int64, string, error) {
+	// List all webhooks for this project
+	hooks, _, err := git.Projects.ListProjectHooks(projectID, nil)
+	if err != nil {
+		return 0, "", fmt.Errorf("failed to list project hooks: %w", err)
+	}
+
+	// Search for webhook with matching URL
+	for _, hook := range hooks {
+		if hook.URL == callbackURL {
+			return int64(hook.ID), hook.URL, nil
+		}
+	}
+
+	// Not found
+	return 0, "", nil
 }
 
 // UpdateLLMModel updates the LLM model for a repository
@@ -282,6 +363,7 @@ func (s *RepositoryService) Delete(id uint, projectID uint) error {
 		return fmt.Errorf("failed to create GitLab client: %w", err)
 	}
 
+
 	// Delete webhook if exists
 	if repo.WebhookID != nil {
 		_, err = git.Projects.DeleteProjectHook(int(repo.PlatformRepoID), int(*repo.WebhookID))
@@ -291,48 +373,58 @@ func (s *RepositoryService) Delete(id uint, projectID uint) error {
 	return s.repo.Delete(id)
 }
 
-// TestWebhook tests if webhook exists on GitLab
+// TestWebhook tests if webhook exists on GitLab and updates status accordingly
 func (s *RepositoryService) TestWebhook(id uint, projectID uint) error {
-	// Get repository
+	// Step 1: Get repository and check local configuration
 	repo, err := s.repo.Get(id, projectID)
 	if err != nil {
 		return fmt.Errorf("repository not found: %w", err)
 	}
 
 	if repo.WebhookID == nil {
+		// Update status to not_configured
+		_ = s.repo.SetWebhookStatus(id, model.WebhookStatusNotConfigured, "webhook ID is null")
 		return fmt.Errorf("webhook not configured")
 	}
 
-	// Get platform config
+	// Step 2: Create GitLab client
 	platformConfig, err := s.platformRepo.GetConfig(projectID)
 	if err != nil {
 		return fmt.Errorf("platform not configured: %w", err)
 	}
 
-	// Decrypt token
 	token, err := s.encryptor.Decrypt(platformConfig.AccessToken)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt token: %w", err)
 	}
 
-	// Create GitLab client
 	git, err := gitlab.NewClient(token, gitlab.WithBaseURL(platformConfig.BaseURL))
 	if err != nil {
 		return fmt.Errorf("failed to create GitLab client: %w", err)
 	}
 
-	// Test webhook by fetching it
+	// Step 3: Test webhook by fetching it from GitLab
 	_, _, err = git.Projects.GetProjectHook(int(repo.PlatformRepoID), int(*repo.WebhookID))
 	if err != nil {
-		// Update repository status
-		s.repo.UpdateWebhookTestStatus(id, "failed", err.Error())
+		// Webhook not found on GitLab - update status to inactive
+		if updateErr := s.repo.SetWebhookStatus(id, model.WebhookStatusInactive, err.Error()); updateErr != nil {
+			// TODO: Use structured logger instead of fmt.Printf
+			// logger.Error("Failed to update webhook status", "repository_id", id, "error", updateErr)
+			fmt.Printf("[ERROR] Failed to update webhook status for repository %d: %v\n", id, updateErr)
+		}
 		return fmt.Errorf("webhook not found on GitLab: %w", err)
 	}
 
-	// Update repository status
-	s.repo.UpdateWebhookTestStatus(id, "success", "")
+	// Step 4: Update repository status to active
+	if updateErr := s.repo.SetWebhookStatus(id, model.WebhookStatusActive, ""); updateErr != nil {
+		// TODO: Use structured logger instead of fmt.Printf
+		// logger.Error("Failed to update webhook status", "repository_id", id, "error", updateErr)
+		fmt.Printf("[ERROR] Failed to update webhook status for repository %d: %v\n", id, updateErr)
+	}
+
 	return nil
 }
+
 
 // RecreateWebhook recreates webhook for a repository
 func (s *RepositoryService) RecreateWebhook(id uint, projectID uint) error {

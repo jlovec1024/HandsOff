@@ -126,21 +126,46 @@ func (r *RepositoryRepo) UpdateLLMModel(id uint, llmModelID *uint) error {
 	return r.db.Model(&model.Repository{}).Where("id = ?", id).Update("llm_model_id", llmModelID).Error
 }
 
-// UpdateWebhook updates webhook information
-func (r *RepositoryRepo) UpdateWebhook(id uint, webhookID int64, webhookURL string) error {
+// SetWebhookStatus is the centralized function for updating webhook status
+// All webhook status changes should go through this function to maintain consistency
+func (r *RepositoryRepo) SetWebhookStatus(id uint, status string, errorMsg string) error {
 	updates := map[string]interface{}{
-		"webhook_id":                &webhookID,
-		"webhook_url":               webhookURL,
-		"last_webhook_test_status":  model.WebhookTestStatusSuccess,
-		"last_webhook_test_at":      time.Now(),
-		"last_webhook_test_error":   "",
+		"webhook_status":       status,
+		"last_webhook_test_at": time.Now(),
+	}
+	if errorMsg != "" {
+		updates["last_webhook_test_error"] = errorMsg
+	} else {
+		updates["last_webhook_test_error"] = ""
 	}
 	return r.db.Model(&model.Repository{}).Where("id = ?", id).Updates(updates).Error
 }
 
-// UpdateWebhookTestStatus updates webhook test status
-func (r *RepositoryRepo) UpdateWebhookTestStatus(id uint, status string, errorMsg string) error {
+// UpdateWebhook updates webhook information after successful creation
+func (r *RepositoryRepo) UpdateWebhook(id uint, webhookID int64, webhookURL string) error {
 	updates := map[string]interface{}{
+		"webhook_id":               &webhookID,
+		"webhook_url":              webhookURL,
+		"webhook_status":           model.WebhookStatusActive,
+		"last_webhook_test_status": model.WebhookTestResultSuccess,
+		"last_webhook_test_at":     time.Now(),
+		"last_webhook_test_error":  "",
+	}
+	return r.db.Model(&model.Repository{}).Where("id = ?", id).Updates(updates).Error
+}
+
+// UpdateWebhookTestStatus updates webhook status based on test result
+// Deprecated: Use SetWebhookStatus instead for better clarity
+func (r *RepositoryRepo) UpdateWebhookTestStatus(id uint, status string, errorMsg string) error {
+	webhookStatus := model.WebhookStatusInactive // Default to inactive
+	if status == model.WebhookTestResultSuccess {
+		webhookStatus = model.WebhookStatusActive
+	} else if status == model.WebhookTestResultFailed {
+		webhookStatus = model.WebhookStatusInactive
+	}
+
+	updates := map[string]interface{}{
+		"webhook_status":           webhookStatus,
 		"last_webhook_test_status": status,
 		"last_webhook_test_at":     time.Now(),
 		"last_webhook_test_error":  errorMsg,

@@ -18,9 +18,9 @@ import {
   ExclamationCircleOutlined,
   CheckCircleOutlined,
   MinusCircleOutlined,
-  WarningOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
+
 import { repositoryApi } from "../../api/repository";
 import { formatTime } from "../../utils/time";
 import ImportModal from "./ImportModal";
@@ -162,81 +162,67 @@ const RepositoryList = () => {
     },
     {
       title: "Webhook 状态",
-      dataIndex: "webhook_id",
+      dataIndex: "webhook_status",
       key: "webhook",
       width: 200,
       render: (_: any, record: Repository) => {
-        const { webhook_id, last_webhook_test_status, last_webhook_test_at } =
-          record;
+        const { webhook_status, webhook_id, last_webhook_test_at } = record;
 
-        if (!webhook_id) {
-          return (
-            <div>
-              <Tag icon={<MinusCircleOutlined />}>未配置</Tag>
-              <Button
-                size="small"
-                type="link"
-                onClick={() => handleWebhookConfig(record)}
-                style={{ padding: 0, marginLeft: 8 }}
-              >
-                配置
-              </Button>
-            </div>
-          );
-        }
+        // Use webhook_status as primary state
+        const status =
+          webhook_status || (webhook_id ? "inactive" : "not_configured");
 
-        if (last_webhook_test_status === "success") {
-          return (
-            <div>
-              <Tag icon={<CheckCircleOutlined />} color="success">
-                正常
-              </Tag>
-              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
-                {formatTime(last_webhook_test_at)}
-              </div>
-            </div>
-          );
-        }
-
-        if (last_webhook_test_status === "failed") {
-          return (
-            <div>
-              <Tag icon={<ExclamationCircleOutlined />} color="error">
-                异常
-              </Tag>
-              <div style={{ marginTop: 4 }}>
+        switch (status) {
+          case "not_configured":
+            return (
+              <div>
+                <Tag icon={<MinusCircleOutlined />} color="default">
+                  未配置
+                </Tag>
                 <Button
                   size="small"
                   type="link"
-                  danger
-                  onClick={() => handleRecreateWebhook(record)}
-                  style={{ padding: 0 }}
+                  onClick={() => handleWebhookConfig(record)}
+                  style={{ padding: 0, marginLeft: 8 }}
                 >
-                  重新配置
+                  配置
                 </Button>
               </div>
-            </div>
-          );
-        }
+            );
 
-        // never or null
-        return (
-          <div>
-            <Tag icon={<WarningOutlined />} color="warning">
-              未检测
-            </Tag>
-            <div style={{ marginTop: 4 }}>
-              <Button
-                size="small"
-                type="link"
-                onClick={() => handleTestWebhook(record)}
-                style={{ padding: 0 }}
-              >
-                立即测试
-              </Button>
-            </div>
-          </div>
-        );
+          case "active":
+            return (
+              <div>
+                <Tag icon={<CheckCircleOutlined />} color="success">
+                  正常
+                </Tag>
+                <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
+                  {formatTime(last_webhook_test_at)}
+                </div>
+              </div>
+            );
+
+          case "inactive":
+          default:
+            return (
+              <div>
+                <Tag icon={<ExclamationCircleOutlined />} color="error">
+                  异常
+                </Tag>
+                <div style={{ marginTop: 4 }}>
+                  <Button
+                    size="small"
+                    type="link"
+                    danger
+                    onClick={() => handleRecreateWebhook(record)}
+                    style={{ padding: 0 }}
+                  >
+                    重新配置
+                  </Button>
+                </div>
+              </div>
+            );
+        }
       },
     },
     {
