@@ -2,8 +2,7 @@
 
 # Variables
 APP_NAME=handsoff
-API_BINARY=bin/$(APP_NAME)-api
-WORKER_BINARY=bin/$(APP_NAME)-worker
+SERVER_BINARY=bin/$(APP_NAME)-server
 GO=go
 GOFLAGS=-v
 
@@ -19,23 +18,16 @@ deps: ## Install Go dependencies
 	$(GO) mod tidy
 
 build: ## Build all binaries
-	@echo "Building API server..."
-	$(GO) build $(GOFLAGS) -o $(API_BINARY) ./cmd/api
-	@echo "Building Worker..."
-	$(GO) build $(GOFLAGS) -o $(WORKER_BINARY) ./cmd/worker
-	@echo "✅ Build completed"
+	@echo "Building unified server ..."
+	$(GO) build $(GOFLAGS) -o $(SERVER_BINARY) ./cmd/server
+	@echo "✅ Server build completed"
 
-run-api: ## Run API server
+run: ## Run server
 	@echo "Found port $(API_PORT), attempting to kill existing process..."
 	@fuser -k "$(API_PORT)/tcp" || true
-	@echo "Starting API server on port $(API_PORT)..."
-	@$(GO) run ./cmd/api/main.go
+	@echo "Starting unified server on port $(API_PORT)..."
+	@$(GO) run ./cmd/server/main.go
 
-run-worker: ## Run worker
-	$(GO) run ./cmd/worker/main.go
-
-run: ## Run both API and worker (requires separate terminals)
-	@echo "Run 'make run-api' in one terminal and 'make run-worker' in another"
 
 
 lint: ## Run linter

@@ -17,23 +17,23 @@ RUN go mod download
 # 复制源代码
 COPY . .
 
-# 构建 API 服务器
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/handsoff-api ./cmd/api
 
-# 构建 Worker
-RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/handsoff-worker ./cmd/worker
+# 构建统一服务器 
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/handsoff-server ./cmd/server
+
+
 
 # ============================================
-# Stage 2: API 运行阶段
+# Stage 2: 统一服务器运行阶段 
 # ============================================
-FROM alpine:latest AS api
+FROM alpine:latest AS server
 
 RUN apk --no-cache add ca-certificates tzdata git wget
 
 WORKDIR /app
 
 # 从构建阶段复制二进制文件
-COPY --from=builder /build/bin/handsoff-api /app/handsoff-api
+COPY --from=builder /build/bin/handsoff-server /app/handsoff-server
 
 # 创建必要的目录
 RUN mkdir -p /app/data /app/logs /app/temp/git
@@ -43,30 +43,10 @@ ENV TZ=Asia/Shanghai
 
 EXPOSE 8080
 
-CMD ["/app/handsoff-api"]
+CMD ["/app/handsoff-server"]
 
 # ============================================
-# Stage 3: Worker 运行阶段
-# ============================================
-FROM alpine:latest AS worker
-
-RUN apk --no-cache add ca-certificates tzdata git
-
-WORKDIR /app
-
-# 从构建阶段复制二进制文件
-COPY --from=builder /build/bin/handsoff-worker /app/handsoff-worker
-
-# 创建必要的目录
-RUN mkdir -p /app/data /app/logs /app/temp/git
-
-# 设置时区
-ENV TZ=Asia/Shanghai
-
-CMD ["/app/handsoff-worker"]
-
-# ============================================
-# Stage 4: 开发阶段（带热重载）
+# Stage 3: 开发阶段（带热重载）
 # ============================================
 FROM golang:1.22-alpine AS dev
 
