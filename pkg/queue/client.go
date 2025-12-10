@@ -1,6 +1,7 @@
 package queue
-
 import (
+	"fmt"
+
 	"github.com/handsoff/handsoff/pkg/config"
 	"github.com/hibiken/asynq"
 )
@@ -12,11 +13,11 @@ type Client struct {
 
 // NewClient creates a new queue client
 func NewClient(cfg config.RedisConfig) *Client {
-	client := asynq.NewClient(asynq.RedisClientOpt{
-		Addr:     cfg.URL,
-		Password: cfg.Password,
-		DB:       cfg.DB,
-	})
-
+	opt, err := asynq.ParseRedisURI(cfg.URL)
+	if err != nil {
+		panic(fmt.Sprintf("invalid Redis URL: %v", err))
+	}
+	
+	client := asynq.NewClient(opt)
 	return &Client{Client: client}
 }

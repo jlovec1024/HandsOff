@@ -18,12 +18,13 @@ type Server struct {
 
 // NewServer creates a new task server
 func NewServer(db *gorm.DB, cfg *config.Config, log *logger.Logger) *Server {
+	opt, err := asynq.ParseRedisURI(cfg.Redis.URL)
+	if err != nil {
+		log.Fatal("Invalid Redis URL", "error", err)
+	}
+	
 	srv := asynq.NewServer(
-		asynq.RedisClientOpt{
-			Addr:     cfg.Redis.URL,
-			Password: cfg.Redis.Password,
-			DB:       cfg.Redis.DB,
-		},
+		opt,
 		asynq.Config{
 			Concurrency: cfg.Worker.Concurrency,
 			// Queues defines queue priority (higher value = higher priority)

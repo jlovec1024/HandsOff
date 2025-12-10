@@ -40,9 +40,7 @@ type DatabaseConfig struct {
 
 // RedisConfig contains Redis connection settings
 type RedisConfig struct {
-	URL      string
-	Password string
-	DB       int
+	URL string // Redis URI format: redis://host:port/db
 }
 
 // WorkerConfig contains async worker settings
@@ -107,10 +105,8 @@ func Load() (*Config, error) {
 			DSN:  getEnv("DB_DSN", "data/app.db"),
 		},
 		Redis: RedisConfig{
-			URL:      getEnv("REDIS_URL", "redis://localhost:6379/0"),
-			Password: getEnv("REDIS_PASSWORD", ""),
-			DB:       getEnvInt("REDIS_DB", 0),
-		},
+		URL: getEnv("REDIS_URL", "redis://localhost:6379/0"),
+	},
 		Worker: WorkerConfig{
 			Concurrency: getEnvInt("WORKER_CONCURRENCY", 10),
 		},
