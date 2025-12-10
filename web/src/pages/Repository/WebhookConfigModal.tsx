@@ -36,9 +36,10 @@ const WebhookConfigModal = ({
         onSuccess(); // Refresh repository list
       }
     } catch (error: any) {
+      const errorMsg = error.response?.data?.error || error.message || "测试失败";
       setTestResult({
         status: "failed",
-        message: error.response?.data?.error || "测试失败",
+        message: errorMsg,
       });
     } finally {
       setTesting(false);
@@ -49,13 +50,14 @@ const WebhookConfigModal = ({
     if (!repository?.id) return;
 
     setRecreating(true);
+    setTestResult(null);
     try {
       await repositoryApi.recreateWebhook(repository.id);
+      onSuccess(); // Refresh repository list
       Modal.success({
         title: "Webhook 已重新配置",
         content: "已删除旧的 Webhook 并创建新的配置",
       });
-      onSuccess(); // Refresh repository list
       onCancel();
     } catch (error: any) {
       Modal.error({
@@ -146,9 +148,31 @@ const WebhookConfigModal = ({
           {testResult && (
             <Alert
               message={
-                testResult.status === "success" ? "测试成功" : "测试失败"
+                testResult.status === "success" ? "✓ Webhook 验证成功" : "✗ Webhook 验证失败"
               }
-              description={testResult.message}
+              description={
+                <div>
+                  <div>{testResult.message}</div>
+                  {testResult.status === "success" && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: "#52c41a" }}>
+                      Webhook 配置正常，可以接收 GitLab 事件通知
+                    </div>
+                  )}
+                  {testResult.status === "failed" && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+                      <div>可能原因：</div>
+                      <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
+                        <li>Webhook 在 GitLab 上不存在或已被删除</li>
+                        <li>Webhook URL 配置错误或不可访问</li>
+                        <li>网络连接问题</li>
+                      </ul>
+                      <div style={{ marginTop: 8 }}>
+                        建议：点击"重新配置"按钮重新创建 Webhook
+                      </div>
+                    </div>
+                  )}
+                </div>
+              }
               type={testResult.status === "success" ? "success" : "error"}
               showIcon
             />
@@ -159,9 +183,7 @@ const WebhookConfigModal = ({
             message="重新配置说明"
             description={
               <div style={{ fontSize: 12 }}>
-                <p style={{ marginBottom: 8 }}>
-                  点击"重新配置"将会：
-                </p>
+                <p style={{ marginBottom: 8 }}>点击"重新配置"将会：</p>
                 <ol style={{ paddingLeft: 20, margin: 0 }}>
                   <li>删除 GitLab 上的旧 Webhook 配置</li>
                   <li>使用当前系统配置的 Webhook URL 创建新的 Webhook</li>

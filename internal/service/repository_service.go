@@ -373,7 +373,7 @@ func (s *RepositoryService) Delete(id uint, projectID uint) error {
 	return s.repo.Delete(id)
 }
 
-// TestWebhook tests if webhook exists on GitLab and updates status accordingly
+// TestWebhook tests webhook with fallback strategy for GitLab version compatibility
 func (s *RepositoryService) TestWebhook(id uint, projectID uint) error {
 	// Step 1: Get repository and check local configuration
 	repo, err := s.repo.Get(id, projectID)
@@ -382,48 +382,48 @@ func (s *RepositoryService) TestWebhook(id uint, projectID uint) error {
 	}
 
 	if repo.WebhookID == nil {
-		// Update status to not_configured
 		_ = s.repo.SetWebhookStatus(id, model.WebhookStatusNotConfigured, "webhook ID is null")
 		return fmt.Errorf("webhook not configured")
 	}
 
 	// Step 2: Create GitLab client
-	platformConfig, err := s.platformRepo.GetConfig(projectID)
+	git, err := s.createGitLabClient(projectID)
 	if err != nil {
-		return fmt.Errorf("platform not configured: %w", err)
+		return err
 	}
 
-	token, err := s.encryptor.Decrypt(platformConfig.AccessToken)
-	if err != nil {
-		return fmt.Errorf("failed to decrypt token: %w", err)
-	}
-
-	git, err := gitlab.NewClient(token, gitlab.WithBaseURL(platformConfig.BaseURL))
-	if err != nil {
-		return fmt.Errorf("failed to create GitLab client: %w", err)
-	}
-
-	// Step 3: Test webhook by fetching it from GitLab
+	// Step 3: Verify webhook exists on GitLab
 	_, _, err = git.Projects.GetProjectHook(int(repo.PlatformRepoID), int(*repo.WebhookID))
 	if err != nil {
-		// Webhook not found on GitLab - update status to inactive
-		if updateErr := s.repo.SetWebhookStatus(id, model.WebhookStatusInactive, err.Error()); updateErr != nil {
-			// TODO: Use structured logger instead of fmt.Printf
-			// logger.Error("Failed to update webhook status", "repository_id", id, "error", updateErr)
-			fmt.Printf("[ERROR] Failed to update webhook status for repository %d: %v\n", id, updateErr)
-		}
+		_ = s.repo.SetWebhookStatus(id, model.WebhookStatusInactive, "webhook not found on GitLab")
 		return fmt.Errorf("webhook not found on GitLab: %w", err)
 	}
 
-	// Step 4: Update repository status to active
-	if updateErr := s.repo.SetWebhookStatus(id, model.WebhookStatusActive, ""); updateErr != nil {
-		// TODO: Use structured logger instead of fmt.Printf
-		// logger.Error("Failed to update webhook status", "repository_id", id, "error", updateErr)
-		fmt.Printf("[ERROR] Failed to update webhook status for repository %d: %v\n", id, updateErr)
+	// Step 4: Try to trigger test event (for GitLab versions that support it)
+	_, triggerErr := git.Projects.TriggerTestProjectHook(
+		int(repo.PlatformRepoID),
+		int(*repo.WebhookID),
+		gitlab.ProjectHookEventMergeRequests,
+	)
+
+	// Step 5: Handle result
+	if triggerErr != nil {
+		// Check if this is a 404 error (GitLab version doesn't support test API)
+		if isNotFoundError(triggerErr) {
+			// GitLab version doesn't support test API, but webhook exists
+			_ = s.repo.SetWebhookStatus(id, model.WebhookStatusActive, "")
+			return nil
+		}
+		// Real error (network, permission, etc.)
+		_ = s.repo.SetWebhookStatus(id, model.WebhookStatusInactive, triggerErr.Error())
+		return fmt.Errorf("webhook test failed: %w", triggerErr)
 	}
 
+	// Test triggered successfully
+	_ = s.repo.SetWebhookStatus(id, model.WebhookStatusActive, "")
 	return nil
 }
+
 
 
 // RecreateWebhook recreates webhook for a repository
@@ -472,4 +472,30 @@ func (s *RepositoryService) RecreateWebhook(id uint, projectID uint) error {
 
 	// Update repository
 	return s.repo.UpdateWebhook(id, webhookID, webhookURL)
+}
+
+// isNotFoundError checks if error is a 404 Not Found error
+// More robust than exact string matching, handles different error message formats
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	// Check for various 404 error message formats
+	return containsAny(errMsg, "404 Not Found", "404 not found", "404: Not Found", "404", "not found")
+}
+
+// containsAny checks if string contains any of the substrings
+func containsAny(s string, substrings ...string) bool {
+	for _, substr := range substrings {
+		if len(substr) > 0 && len(s) >= len(substr) {
+			// Simple contains check
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

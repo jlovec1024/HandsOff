@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/handsoff/handsoff/internal/gitlab"
 	"github.com/handsoff/handsoff/internal/llm"
@@ -70,6 +71,12 @@ func (h *ReviewHandler) HandleCodeReview(ctx context.Context, t *asynq.Task) err
 		h.log.Error("Failed to post comment, will retry", "error", err, "review_id", reviewResult.ID)
 		return fmt.Errorf("failed to post comment: %w", err)
 	}
+
+	// Step 6: Update webhook event status to completed (if associated with webhook)
+	if reviewResult.WebhookEventID != nil {
+		h.updateWebhookEventStatus(reviewResult, model.EventStatusCompleted)
+	}
+
 
 	h.log.Info("Code review completed successfully",
 		"review_id", reviewResult.ID,
@@ -248,6 +255,22 @@ func (h *ReviewHandler) markReviewFailed(reviewID uint, errorMsg string) {
 	storage := service.NewReviewStorageService(h.db)
 	if err := storage.MarkReviewFailed(&model.ReviewResult{ID: reviewID}, errorMsg); err != nil {
 		h.log.Error("Failed to mark review as failed", "error", err, "review_id", reviewID)
+	}
+}
+
+// updateWebhookEventStatus updates webhook event status
+// Note: This function assumes WebhookEventID is NOT nil - caller must check before calling
+// Do not add defensive nil checks here - let it fail fast if misused
+func (h *ReviewHandler) updateWebhookEventStatus(review *model.ReviewResult, status model.EventStatus) {
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status":       status,
+		"processed_at": now,
+	}
+
+	if err := h.db.Model(&model.WebhookEvent{}).Where("id = ?", *review.WebhookEventID).Updates(updates).Error; err != nil {
+		h.log.Error("Failed to update webhook event status", "error", err, "webhook_event_id", *review.WebhookEventID)
+		// Don't fail the task for this minor error - webhook status is for tracking only
 	}
 }
 

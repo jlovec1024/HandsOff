@@ -62,6 +62,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.Repository{},
 		&model.LLMProvider{},
 		&model.SystemConfig{}, // System-level configuration
+		&model.WebhookEvent{}, // Webhook event records
 		&model.ReviewResult{},
 		&model.FixSuggestion{},
 	)

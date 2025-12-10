@@ -87,5 +87,3 @@ config/config.yaml
 
 # Snow AI
 .snow/
-api
-handsoff-api

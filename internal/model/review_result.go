@@ -24,6 +24,9 @@ type ReviewResult struct {
 	CommentPosted  bool       `gorm:"default:false;not null" json:"comment_posted"` // Whether comment was posted to GitLab
 	CommentURL     string     `gorm:"size:500" json:"comment_url"`
 
+	// Webhook event relationship (optional, for tracing which webhook triggered this review)
+	WebhookEventID *uint `gorm:"index" json:"webhook_event_id"` // Foreign key to webhook_events
+
 	// Statistics fields
 	IssuesFound            int `gorm:"default:0" json:"issues_found"`              // Total number of issues found
 	CriticalIssuesCount    int `gorm:"default:0;index" json:"critical_issues_count"` // Number of critical severity issues
