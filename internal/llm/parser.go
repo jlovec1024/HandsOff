@@ -7,57 +7,164 @@ import (
 	"strings"
 )
 
+// llmSuggestion 中间结构体，用于解析 LLM 返回的原始 JSON
+// 支持 LLM 常见的字段命名（file, line, message）
+type llmSuggestion struct {
+	File       string `json:"file"`        // LLM 可能返回 "file"
+	FilePath   string `json:"file_path"`   // 或 "file_path"
+	Line       int    `json:"line"`        // LLM 可能返回 "line"
+	LineStart  int    `json:"line_start"`  // 或 "line_start"
+	LineEnd    int    `json:"line_end"`    // 结束行
+	Severity   string `json:"severity"`    // 严重程度
+	Category   string `json:"category"`    // 类别
+	Message    string `json:"message"`     // LLM 可能返回 "message"
+	Description string `json:"description"` // 或 "description"
+	Suggestion string `json:"suggestion"`  // 修复建议
+	CodeSnippet string `json:"code_snippet"` // 代码片段
+}
+
+// toFixSuggestion 转换为标准的 FixSuggestion
+func (ls *llmSuggestion) toFixSuggestion() FixSuggestion {
+	// 优先使用更具体的字段名，回退到通用字段名
+	filePath := ls.FilePath
+	if filePath == "" {
+		filePath = ls.File
+	}
+	
+	lineStart := ls.LineStart
+	if lineStart == 0 {
+		lineStart = ls.Line
+	}
+	
+	description := ls.Description
+	if description == "" {
+		description = ls.Message
+	}
+	
+	return FixSuggestion{
+		FilePath:    filePath,
+		LineStart:   lineStart,
+		LineEnd:     ls.LineEnd,
+		Severity:    ls.Severity,
+		Category:    ls.Category,
+		Description: description,
+		Suggestion:  ls.Suggestion,
+		CodeSnippet: ls.CodeSnippet,
+	}
+}
+
+// llmReviewResponse 中间结构体，用于解析 LLM 返回的完整响应
+type llmReviewResponse struct {
+	Summary     string          `json:"summary"`
+	Score       int             `json:"score"`
+	Suggestions []llmSuggestion `json:"suggestions"`
+}
+
 // parseReviewResponse parses LLM response into structured ReviewResponse
 func parseReviewResponse(content string) (*ReviewResponse, error) {
 	// Try to extract JSON from markdown code blocks
-	content = extractJSONFromMarkdown(content)
+	jsonContent := extractJSONFromMarkdown(content)
 
-	// Try to parse as JSON
-	var reviewResp ReviewResponse
-	if err := json.Unmarshal([]byte(content), &reviewResp); err != nil {
-		// If JSON parsing fails, try to extract structured data from text
-		return parseTextResponse(content)
-	}
-
-	// Validate parsed response
-	if reviewResp.Summary == "" {
-		reviewResp.Summary = "No summary provided"
-	}
-
-	// Ensure score is in valid range
-	if reviewResp.Score < 0 {
-		reviewResp.Score = 0
-	}
-	if reviewResp.Score > 100 {
-		reviewResp.Score = 100
-	}
-
-	// Validate suggestions
-	for i := range reviewResp.Suggestions {
-		if reviewResp.Suggestions[i].Severity == "" {
-			reviewResp.Suggestions[i].Severity = "medium"
-		}
-		if reviewResp.Suggestions[i].Category == "" {
-			reviewResp.Suggestions[i].Category = "general"
+	// Try to parse as JSON with intermediate structure
+	var llmResp llmReviewResponse
+	if err := json.Unmarshal([]byte(jsonContent), &llmResp); err == nil {
+		// JSON 解析成功，转换为标准格式
+		if llmResp.Summary != "" || llmResp.Score > 0 || len(llmResp.Suggestions) > 0 {
+			reviewResp := &ReviewResponse{
+				Summary:     llmResp.Summary,
+				Score:       llmResp.Score,
+				Suggestions: make([]FixSuggestion, len(llmResp.Suggestions)),
+			}
+			
+			// 转换 suggestions
+			for i, llmSug := range llmResp.Suggestions {
+				reviewResp.Suggestions[i] = llmSug.toFixSuggestion()
+			}
+			
+			return normalizeReviewResponse(reviewResp), nil
 		}
 	}
 
-	return &reviewResp, nil
+	// If JSON parsing fails, try to extract structured data from text
+	return parseTextResponse(content)
 }
 
-// extractJSONFromMarkdown extracts JSON content from markdown code blocks
+// normalizeReviewResponse 标准化审查响应
+func normalizeReviewResponse(resp *ReviewResponse) *ReviewResponse {
+	// 1. 处理 summary
+	if resp.Summary == "" {
+		resp.Summary = "No summary provided"
+	}
+
+	// 2. 规范化 score (0-100)
+	if resp.Score < 0 {
+		resp.Score = 0
+	}
+	if resp.Score > 100 {
+		resp.Score = 100
+	}
+
+	// 3. 标准化每个 suggestion
+	for i := range resp.Suggestions {
+		// 标准化 severity
+		resp.Suggestions[i].Severity = NormalizeSeverity(resp.Suggestions[i].Severity)
+
+		// 标准化 category
+		resp.Suggestions[i].Category = NormalizeCategory(resp.Suggestions[i].Category)
+
+		// 确保 FilePath 不为空
+		if resp.Suggestions[i].FilePath == "" {
+			resp.Suggestions[i].FilePath = "unknown"
+		}
+
+		// 确保 LineEnd >= LineStart
+		if resp.Suggestions[i].LineEnd < resp.Suggestions[i].LineStart {
+			resp.Suggestions[i].LineEnd = resp.Suggestions[i].LineStart
+		}
+	}
+
+	return resp
+}
+
+// extractJSONFromMarkdown extracts JSON content from markdown code blocks or raw JSON
 func extractJSONFromMarkdown(content string) string {
-	// Pattern: ```json\n{...}\n```
-	jsonBlockPattern := regexp.MustCompile("(?s)```(?:json)?\n?(.*?)\n?```")
-	matches := jsonBlockPattern.FindStringSubmatch(content)
-	if len(matches) > 1 {
+	content = strings.TrimSpace(content)
+
+	// Pattern 1: ```json\n{...}\n``` or ```\n{...}\n```
+	jsonBlockPattern := regexp.MustCompile("(?s)```(?:json)?\\s*\\n?(\\{.*?\\})\\s*\\n?```")
+	if matches := jsonBlockPattern.FindStringSubmatch(content); len(matches) > 1 {
 		return strings.TrimSpace(matches[1])
 	}
 
-	// Pattern: {..."summary":...}
-	jsonPattern := regexp.MustCompile(`(?s)\{.*?"summary".*?\}`)
-	if jsonPattern.MatchString(content) {
-		return content
+	// Pattern 2: 直接以 { 开头的 JSON
+	if strings.HasPrefix(content, "{") {
+		// 找到匹配的右括号
+		braceCount := 0
+		for i, ch := range content {
+			if ch == '{' {
+				braceCount++
+			} else if ch == '}' {
+				braceCount--
+				if braceCount == 0 {
+					return content[:i+1]
+				}
+			}
+		}
+	}
+
+	// Pattern 3: 在文本中查找包含 "summary" 或 "score" 的 JSON 对象
+	// 更宽松的匹配，支持嵌套结构
+	startIdx := strings.Index(content, "{")
+	if startIdx >= 0 {
+		endIdx := strings.LastIndex(content, "}")
+		if endIdx > startIdx {
+			potential := content[startIdx : endIdx+1]
+			// 验证是否是有效 JSON
+			var test map[string]interface{}
+			if json.Unmarshal([]byte(potential), &test) == nil {
+				return potential
+			}
+		}
 	}
 
 	return content
@@ -180,25 +287,8 @@ func extractSuggestions(content string) []FixSuggestion {
 
 			// Determine severity based on keywords
 			lowerDesc := strings.ToLower(match[1])
-			if strings.Contains(lowerDesc, "critical") ||
-				strings.Contains(lowerDesc, "security") ||
-				strings.Contains(lowerDesc, "vulnerability") {
-				suggestion.Severity = "high"
-			} else if strings.Contains(lowerDesc, "minor") ||
-				strings.Contains(lowerDesc, "style") ||
-				strings.Contains(lowerDesc, "formatting") {
-				suggestion.Severity = "low"
-			}
-
-			// Determine category
-			if strings.Contains(lowerDesc, "security") {
-				suggestion.Category = "security"
-			} else if strings.Contains(lowerDesc, "performance") {
-				suggestion.Category = "performance"
-			} else if strings.Contains(lowerDesc, "style") ||
-				strings.Contains(lowerDesc, "format") {
-				suggestion.Category = "style"
-			}
+			suggestion.Severity = detectSeverityFromText(lowerDesc)
+			suggestion.Category = detectCategoryFromText(lowerDesc)
 
 			suggestions = append(suggestions, suggestion)
 
@@ -210,4 +300,60 @@ func extractSuggestions(content string) []FixSuggestion {
 	}
 
 	return suggestions
+}
+
+// detectSeverityFromText 从文本中检测 severity
+func detectSeverityFromText(text string) string {
+	if strings.Contains(text, "critical") ||
+		strings.Contains(text, "blocker") ||
+		strings.Contains(text, "fatal") {
+		return "critical"
+	}
+	if strings.Contains(text, "security") ||
+		strings.Contains(text, "vulnerability") ||
+		strings.Contains(text, "major") ||
+		strings.Contains(text, "important") {
+		return "high"
+	}
+	if strings.Contains(text, "minor") ||
+		strings.Contains(text, "trivial") ||
+		strings.Contains(text, "style") ||
+		strings.Contains(text, "formatting") ||
+		strings.Contains(text, "hint") {
+		return "low"
+	}
+	return "medium"
+}
+
+// detectCategoryFromText 从文本中检测 category
+func detectCategoryFromText(text string) string {
+	if strings.Contains(text, "security") ||
+		strings.Contains(text, "vulnerability") ||
+		strings.Contains(text, "injection") ||
+		strings.Contains(text, "xss") {
+		return "security"
+	}
+	if strings.Contains(text, "performance") ||
+		strings.Contains(text, "slow") ||
+		strings.Contains(text, "optimize") {
+		return "performance"
+	}
+	if strings.Contains(text, "style") ||
+		strings.Contains(text, "format") ||
+		strings.Contains(text, "naming") ||
+		strings.Contains(text, "convention") {
+		return "style"
+	}
+	if strings.Contains(text, "logic") ||
+		strings.Contains(text, "bug") ||
+		strings.Contains(text, "error") ||
+		strings.Contains(text, "incorrect") {
+		return "logic"
+	}
+	if strings.Contains(text, "documentation") ||
+		strings.Contains(text, "comment") ||
+		strings.Contains(text, "doc") {
+		return "documentation"
+	}
+	return "other"
 }

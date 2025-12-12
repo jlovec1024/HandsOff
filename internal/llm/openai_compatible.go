@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+	
+	"github.com/handsoff/handsoff/pkg/logger"
 )
 
 // OpenAICompatibleClient implements Client interface for OpenAI-compatible APIs
@@ -15,6 +17,7 @@ type OpenAICompatibleClient struct {
 	providerName string
 	config       Config
 	client       *http.Client
+	log          *logger.Logger
 }
 
 // NewOpenAICompatibleClient creates a new OpenAI-compatible client
@@ -25,6 +28,7 @@ func NewOpenAICompatibleClient(providerName string, config Config) *OpenAICompat
 		client: &http.Client{
 			Timeout: config.Timeout * time.Second,
 		},
+		log: logger.New("info", "json"), // 使用 JSON 格式便于后续分析
 	}
 }
 
@@ -69,6 +73,14 @@ type compatibleResponse struct {
 // Review performs code review using OpenAI-compatible API
 func (c *OpenAICompatibleClient) Review(req ReviewRequest) (*ReviewResponse, error) {
 	start := time.Now()
+	
+	// Log request start
+	c.log.Info("LLM API request started",
+		"provider", c.providerName,
+		"model", c.config.ModelName,
+		"base_url", c.config.BaseURL,
+		"diff_size", len(req.Diff),
+	)
 
 	// Construct request
 	apiReq := compatibleRequest{
@@ -90,12 +102,20 @@ func (c *OpenAICompatibleClient) Review(req ReviewRequest) (*ReviewResponse, err
 	// Marshal request
 	reqBody, err := json.Marshal(apiReq)
 	if err != nil {
+		c.log.Error("Failed to marshal LLM request",
+			"provider", c.providerName,
+			"error", err,
+		)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Create HTTP request
 	httpReq, err := http.NewRequest("POST", c.config.BaseURL+"/chat/completions", bytes.NewBuffer(reqBody))
 	if err != nil {
+		c.log.Error("Failed to create HTTP request",
+			"provider", c.providerName,
+			"error", err,
+		)
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -103,8 +123,18 @@ func (c *OpenAICompatibleClient) Review(req ReviewRequest) (*ReviewResponse, err
 	httpReq.Header.Set("Authorization", "Bearer "+c.config.APIKey)
 
 	// Send request
+	apiCallStart := time.Now()
 	resp, err := c.client.Do(httpReq)
+	apiCallDuration := time.Since(apiCallStart)
+	
 	if err != nil {
+		c.log.Error("LLM API request failed",
+			"provider", c.providerName,
+			"model", c.config.ModelName,
+			"duration_ms", apiCallDuration.Milliseconds(),
+			"error", err,
+			"status", "network_error",
+		)
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -112,22 +142,50 @@ func (c *OpenAICompatibleClient) Review(req ReviewRequest) (*ReviewResponse, err
 	// Read response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		c.log.Error("Failed to read LLM response",
+			"provider", c.providerName,
+			"http_status", resp.StatusCode,
+			"duration_ms", apiCallDuration.Milliseconds(),
+			"error", err,
+		)
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Parse response
 	var apiResp compatibleResponse
 	if err := json.Unmarshal(body, &apiResp); err != nil {
+		c.log.Error("Failed to parse LLM response JSON",
+			"provider", c.providerName,
+			"http_status", resp.StatusCode,
+			"response_size", len(body),
+			"duration_ms", apiCallDuration.Milliseconds(),
+			"error", err,
+		)
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// Check for API errors
 	if apiResp.Error != nil {
+		c.log.Error("LLM API returned error",
+			"provider", c.providerName,
+			"model", c.config.ModelName,
+			"duration_ms", apiCallDuration.Milliseconds(),
+			"error_message", apiResp.Error.Message,
+			"error_type", apiResp.Error.Type,
+			"error_code", apiResp.Error.Code,
+			"status", "api_error",
+		)
 		return nil, fmt.Errorf("%s API error: %s (type: %s)", c.providerName, apiResp.Error.Message, apiResp.Error.Type)
 	}
 
 	// Check response validity
 	if len(apiResp.Choices) == 0 {
+		c.log.Error("LLM API returned no choices",
+			"provider", c.providerName,
+			"model", c.config.ModelName,
+			"duration_ms", apiCallDuration.Milliseconds(),
+			"status", "invalid_response",
+		)
 		return nil, fmt.Errorf("no choices in response")
 	}
 
@@ -137,6 +195,12 @@ func (c *OpenAICompatibleClient) Review(req ReviewRequest) (*ReviewResponse, err
 	// Parse structured review response
 	reviewResp, err := parseReviewResponse(content)
 	if err != nil {
+		c.log.Warn("Failed to parse review content as structured format, using fallback",
+			"provider", c.providerName,
+			"model", c.config.ModelName,
+			"content_size", len(content),
+			"error", err,
+		)
 		return nil, fmt.Errorf("failed to parse review response: %w", err)
 	}
 
@@ -145,6 +209,24 @@ func (c *OpenAICompatibleClient) Review(req ReviewRequest) (*ReviewResponse, err
 	reviewResp.ModelUsed = apiResp.Model
 	reviewResp.TokensUsed = apiResp.Usage.TotalTokens
 	reviewResp.Duration = time.Since(start)
+	
+	totalDuration := time.Since(start)
+	
+	// Log successful completion with metrics
+	c.log.Info("LLM API request completed successfully",
+		"provider", c.providerName,
+		"model", apiResp.Model,
+		"status", "success",
+		"total_duration_ms", totalDuration.Milliseconds(),
+		"api_call_duration_ms", apiCallDuration.Milliseconds(),
+		"parsing_duration_ms", (totalDuration - apiCallDuration).Milliseconds(),
+		"tokens_prompt", apiResp.Usage.PromptTokens,
+		"tokens_completion", apiResp.Usage.CompletionTokens,
+		"tokens_total", apiResp.Usage.TotalTokens,
+		"response_size", len(content),
+		"suggestions_count", len(reviewResp.Suggestions),
+		"review_score", reviewResp.Score,
+	)
 
 	return reviewResp, nil
 }
