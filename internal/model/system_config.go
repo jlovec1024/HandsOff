@@ -22,5 +22,7 @@ func (SystemConfig) TableName() string {
 
 // Predefined configuration keys
 const (
-	ConfigKeyWebhookURL = "webhook_callback_url" // System Webhook URL
+	ConfigKeyWebhookURL           = "webhook_callback_url"   // System Webhook URL
+	ConfigKeyReviewPromptTemplate = "review_prompt_template" // Review Prompt template
+	ConfigKeyReviewPromptVersion  = "review_prompt_version"  // Review Prompt version
 )

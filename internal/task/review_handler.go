@@ -16,9 +16,10 @@ import (
 
 // ReviewHandler handles code review tasks
 type ReviewHandler struct {
-	db            *gorm.DB
-	log           Logger
-	encryptionKey string
+	db              *gorm.DB
+	log             Logger
+	encryptionKey   string
+	systemConfigSvc *service.SystemConfigService
 }
 
 // Logger interface for handler logging
@@ -30,9 +31,10 @@ type Logger interface {
 // NewReviewHandler creates a new review handler
 func NewReviewHandler(db *gorm.DB, log Logger, encryptionKey string) *ReviewHandler {
 	return &ReviewHandler{
-		db:            db,
-		log:           log,
-		encryptionKey: encryptionKey,
+		db:              db,
+		log:             log,
+		encryptionKey:   encryptionKey,
+		systemConfigSvc: service.NewSystemConfigService(db),
 	}
 }
 
@@ -77,7 +79,6 @@ func (h *ReviewHandler) HandleCodeReview(ctx context.Context, t *asynq.Task) err
 		h.updateWebhookEventStatus(reviewResult, model.EventStatusCompleted)
 	}
 
-
 	h.log.Info("Code review completed successfully",
 		"review_id", reviewResult.ID,
 		"score", reviewResp.Score,
@@ -94,7 +95,7 @@ func (h *ReviewHandler) loadReviewContext(t *asynq.Task) (*model.ReviewResult, e
 		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
-	h.log.Info("Processing code review task", 
+	h.log.Info("Processing code review task",
 		"review_id", payload.ReviewResultID,
 		"task_id", t.ResultWriter().TaskID())
 
@@ -177,7 +178,8 @@ func (h *ReviewHandler) callLLMReview(review *model.ReviewResult, diff string) (
 		review.TargetBranch,
 	)
 
-	prompt := llm.RenderPrompt(llm.GetDefaultPrompt(), promptData)
+	promptTemplate := h.getPromptTemplate(review)
+	prompt := llm.RenderPrompt(promptTemplate, promptData)
 
 	// Prepare review request
 	reviewReq := llm.ReviewRequest{
@@ -189,7 +191,7 @@ func (h *ReviewHandler) callLLMReview(review *model.ReviewResult, diff string) (
 	}
 
 	// Call LLM API
-	h.log.Info("Calling LLM API", 
+	h.log.Info("Calling LLM API",
 		"provider", review.LLMProvider.Name,
 		"model", review.LLMProvider.Model)
 
@@ -208,9 +210,15 @@ func (h *ReviewHandler) callLLMReview(review *model.ReviewResult, diff string) (
 
 // saveReviewResults saves review results and suggestions to database
 func (h *ReviewHandler) saveReviewResults(review *model.ReviewResult, resp *llm.ReviewResponse) error {
-	h.log.Info("Saving review result with statistics", 
+	h.log.Info("Saving review result with statistics",
 		"review_id", review.ID,
 		"suggestions_count", len(resp.Suggestions))
+
+	// Generate structured JSON output for operations analysis
+	jsonOutput := h.generateReviewJSON(review, resp)
+	if jsonOutput != "" {
+		resp.RawResponse = jsonOutput
+	}
 
 	storage := service.NewReviewStorageService(h.db)
 	if err := storage.SaveReviewResult(review, resp); err != nil {
@@ -219,6 +227,75 @@ func (h *ReviewHandler) saveReviewResults(review *model.ReviewResult, resp *llm.
 	}
 
 	return nil
+}
+
+// generateReviewJSON generates structured JSON output for operations analysis
+// Returns empty string if generation fails (non-fatal)
+func (h *ReviewHandler) generateReviewJSON(review *model.ReviewResult, resp *llm.ReviewResponse) string {
+	// Build context from review data
+	ctx := llm.OutputContext{
+		Repository: llm.ContextRepository{
+			ID:             review.Repository.ID,
+			Name:           review.Repository.Name,
+			FullName:       review.Repository.FullPath,
+			Platform:       review.Repository.Platform.PlatformType,
+			PlatformRepoID: review.Repository.PlatformRepoID,
+		},
+		MergeRequest: llm.ContextMergeRequest{
+			ID:           0, // System internal ID (not tracked separately)
+			IID:          review.MergeRequestID,
+			Title:        review.MRTitle,
+			Author:       review.MRAuthor,
+			SourceBranch: review.SourceBranch,
+			TargetBranch: review.TargetBranch,
+			WebURL:       review.MRWebURL,
+		},
+		Review: llm.ContextReview{
+			ID:          review.ID,
+			ReviewedAt:  time.Now(),
+			LLMProvider: review.LLMProvider.Name,
+			LLMModel:    review.LLMProvider.Model,
+			TokensUsed:  resp.TokensUsed,
+			DurationMs:  resp.Duration.Milliseconds(),
+		},
+	}
+
+	// Build metadata
+	meta := llm.OutputMetadata{
+		PromptTemplate:     h.getPromptSource(review),
+		CustomPromptUsed:   h.isCustomPromptUsed(review),
+		RawResponseAvail:   true,
+		ParserFallbackUsed: false,
+	}
+
+	jsonOutput, err := llm.FormatReviewAsJSON(resp, ctx, meta)
+	if err != nil {
+		h.log.Error("Failed to format review as JSON", "error", err, "review_id", review.ID)
+		return ""
+	}
+
+	return jsonOutput
+}
+
+// getPromptSource returns the prompt source name for metadata
+func (h *ReviewHandler) getPromptSource(review *model.ReviewResult) string {
+	if review.Repository != nil &&
+		review.Repository.CustomReviewPrompt != nil &&
+		*review.Repository.CustomReviewPrompt != "" {
+		return "repository"
+	}
+	if review.Repository != nil && review.Repository.ProjectID != 0 {
+		globalPrompt := h.systemConfigSvc.GetReviewPrompt(review.Repository.ProjectID)
+		if globalPrompt != llm.GetDefaultPrompt() {
+			return "custom"
+		}
+	}
+	return "default"
+}
+
+// isCustomPromptUsed returns whether a custom prompt is used
+func (h *ReviewHandler) isCustomPromptUsed(review *model.ReviewResult) bool {
+	return h.getPromptSource(review) != "default"
 }
 
 // postCommentToGitLab posts review comment to GitLab MR
@@ -274,4 +351,27 @@ func (h *ReviewHandler) updateWebhookEventStatus(review *model.ReviewResult, sta
 	}
 }
 
+// getPromptTemplate returns the prompt template by priority
+// Priority: Repository-level > Global config > Hardcoded default
+func (h *ReviewHandler) getPromptTemplate(review *model.ReviewResult) string {
+	// 1. Check repository-level custom prompt (highest priority)
+	if review.Repository != nil &&
+		review.Repository.CustomReviewPrompt != nil &&
+		*review.Repository.CustomReviewPrompt != "" {
+		h.log.Info("Using repository-level custom prompt", "repository_id", review.Repository.ID)
+		return *review.Repository.CustomReviewPrompt
+	}
 
+	// 2. Check global config (requires Repository with ProjectID)
+	if review.Repository != nil && review.Repository.ProjectID != 0 {
+		globalPrompt := h.systemConfigSvc.GetReviewPrompt(review.Repository.ProjectID)
+		if globalPrompt != llm.GetDefaultPrompt() {
+			h.log.Info("Using global configured prompt", "project_id", review.Repository.ProjectID)
+			return globalPrompt
+		}
+	}
+
+	// 3. Fallback to hardcoded default
+	h.log.Info("Using default hardcoded prompt")
+	return llm.GetDefaultPrompt()
+}

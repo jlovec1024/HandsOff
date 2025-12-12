@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/handsoff/handsoff/internal/llm"
 	"github.com/handsoff/handsoff/internal/model"
 	"gorm.io/gorm"
 )
@@ -69,4 +70,36 @@ func (s *SystemConfigService) upsertConfig(tx *gorm.DB, projectID uint, key, val
 	// Update existing config
 	config.Value = value
 	return tx.Save(&config).Error
+}
+
+// GetReviewPrompt returns the global Review Prompt for a project
+// Falls back to default prompt if not configured
+func (s *SystemConfigService) GetReviewPrompt(projectID uint) string {
+	var config model.SystemConfig
+	err := s.db.Where("project_id = ? AND config_key = ?", projectID, model.ConfigKeyReviewPromptTemplate).
+		First(&config).Error
+
+	if err != nil || config.Value == "" {
+		return llm.GetDefaultPrompt()
+	}
+	return config.Value
+}
+
+// UpdateReviewPrompt updates the Review Prompt configuration
+func (s *SystemConfigService) UpdateReviewPrompt(projectID uint, prompt, version string) error {
+	// Validate prompt template
+	if err := llm.ValidatePromptTemplate(prompt); err != nil {
+		return err
+	}
+
+	// Update prompt
+	if err := s.upsertConfig(s.db, projectID, model.ConfigKeyReviewPromptTemplate, prompt); err != nil {
+		return err
+	}
+
+	// Update version (optional)
+	if version != "" {
+		return s.upsertConfig(s.db, projectID, model.ConfigKeyReviewPromptVersion, version)
+	}
+	return nil
 }
