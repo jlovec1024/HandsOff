@@ -92,4 +92,4 @@ config/config.yaml
 .claude/
 
 # Server binary
-server
+serverinternal/web/dist/
