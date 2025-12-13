@@ -1,7 +1,7 @@
 services:
   # HandsOff 应用服务（前端+后端）
   app:
-    image: ghcr.io/jlovec1024/handsoff:latest
+    image: ghcr.io/jlovec1024/handsoff:v0.1.0
     container_name: handsoff-app
     restart: unless-stopped
     ports:
@@ -27,6 +27,8 @@ services:
           "--tries=1",
           "--spider",
           "http://localhost:8080/api/health",
+          "-O",
+          "-",
         ]
       interval: 30s
       timeout: 10s
@@ -40,8 +42,6 @@ services:
     image: redis:7-alpine
     container_name: handsoff-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --requirepass handsoff_redis_pwd

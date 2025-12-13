@@ -81,16 +81,11 @@ type CORSConfig struct {
 
 // Load reads configuration from environment variables
 func Load() (*Config, error) {
-	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
 
-	// Read .env file if it exists
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
-		}
-		// .env file not found, continue with environment variables only
-	}
+	// Try to read .env file if it exists (optional for Docker deployment)
+	viper.SetConfigFile(".env")
+	_ = viper.ReadInConfig() // Ignore error - env vars take precedence
 
 	cfg := &Config{
 		App: AppConfig{
