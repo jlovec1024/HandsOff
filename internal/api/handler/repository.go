@@ -30,6 +30,7 @@ func NewRepositoryHandler(service *service.RepositoryService, db *gorm.DB, log *
 func (h *RepositoryHandler) ListFromGitLab(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	search := c.Query("search")
 
 	projectID, ok := getProjectID(c)
 	if !ok {
@@ -38,7 +39,7 @@ func (h *RepositoryHandler) ListFromGitLab(c *gin.Context) {
 		return
 	}
 
-	repos, totalPages, err := h.service.ListFromGitLab(projectID, page, perPage)
+	repos, totalPages, err := h.service.ListFromGitLab(projectID, page, perPage, search)
 	if err != nil {
 		h.log.Error("Failed to list GitLab repositories", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

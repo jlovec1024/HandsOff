@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Modal, Table, message, Spin, Alert } from "antd";
+import { Modal, Table, message, Spin, Alert, Input } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
 import type { TableColumnsType } from "antd";
 import { repositoryApi } from "../../api/repository";
 import { systemApi } from "../../api/system";
@@ -17,35 +18,21 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [importing, setImporting] = useState(false);
   const [systemWebhookUrl, setSystemWebhookUrl] = useState("");
+  const [searchText, setSearchText] = useState("");
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 20,
     total: 0,
   });
 
-  useEffect(() => {
-    if (visible) {
-      loadSystemWebhookUrl();
-      loadRepositories();
-    }
-  }, [visible]);
-
-  const loadSystemWebhookUrl = async () => {
-    try {
-      const response = await systemApi.getWebhookConfig();
-      setSystemWebhookUrl(response.data.webhook_callback_url);
-    } catch (error) {
-      console.error("Failed to load system webhook URL:", error);
-      message.warning("未配置系统 Webhook URL，请先在系统设置中配置");
-    }
-  };
-
-  const loadRepositories = async (page: number = 1) => {
+  // 加载仓库列表：接受 search 参数，避免闭包问题
+  const loadRepositories = async (page: number = 1, search: string = "") => {
     setLoading(true);
     try {
       const response = await repositoryApi.listFromGitLab(
         page,
-        pagination.pageSize
+        pagination.pageSize,
+        search
       );
       const { repositories: repos, total_pages } = response.data;
       setRepositories(Array.isArray(repos) ? repos : []);
@@ -59,6 +46,39 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
       message.error("获取GitLab仓库列表失败");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Modal 打开时：重置状态并加载全量数据
+  useEffect(() => {
+    if (visible) {
+      setSearchText("");
+      loadSystemWebhookUrl();
+      loadRepositories(1, "");
+    }
+  }, [visible]);
+
+  // 搜索防抖：输入变化后 500ms 触发，清空时立即恢复
+  useEffect(() => {
+    if (!visible) return;
+
+    const timer = setTimeout(
+      () => {
+        loadRepositories(1, searchText);
+      },
+      searchText ? 500 : 0
+    ); // 有输入时防抖 500ms，清空时立即加载
+
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  const loadSystemWebhookUrl = async () => {
+    try {
+      const response = await systemApi.getWebhookConfig();
+      setSystemWebhookUrl(response.data.webhook_callback_url);
+    } catch (error) {
+      console.error("Failed to load system webhook URL:", error);
+      message.warning("未配置系统 Webhook URL，请先在系统设置中配置");
     }
   };
 
@@ -131,6 +151,14 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
       width={800}
       confirmLoading={importing}
     >
+      <Input
+        placeholder="搜索仓库名称、路径或描述"
+        prefix={<SearchOutlined />}
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        style={{ marginBottom: 16 }}
+        allowClear
+      />
       {systemWebhookUrl ? (
         <Alert
           message="系统 Webhook 配置"
@@ -197,7 +225,7 @@ const ImportModal = ({ visible, onCancel, onSuccess }: ImportModalProps) => {
             current: pagination.current,
             pageSize: pagination.pageSize,
             total: pagination.total,
-            onChange: loadRepositories,
+            onChange: (page) => loadRepositories(page, searchText),
           }}
         />
       </Spin>

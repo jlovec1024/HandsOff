@@ -3,14 +3,18 @@ import type { Repository, GitLabRepository } from "../types";
 
 export const repositoryApi = {
   // List repositories from GitLab
-  listFromGitLab: (page: number = 1, perPage: number = 20) => {
+  listFromGitLab: (
+    page: number = 1,
+    perPage: number = 20,
+    search: string = ""
+  ) => {
     return request.get<{
       repositories: GitLabRepository[];
       page: number;
       per_page: number;
       total_pages: number;
     }>("/repositories/gitlab", {
-      params: { page, per_page: perPage },
+      params: { page, per_page: perPage, search },
     });
   },
 
