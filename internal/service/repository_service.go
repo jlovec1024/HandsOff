@@ -50,7 +50,7 @@ type GitLabRepository struct {
 }
 
 // ListFromGitLab fetches repositories from GitLab
-func (s *RepositoryService) ListFromGitLab(projectID uint, page, perPage int) ([]GitLabRepository, int, error) {
+func (s *RepositoryService) ListFromGitLab(projectID uint, page, perPage int, search string) ([]GitLabRepository, int, error) {
 	// Get platform config
 	platformConfig, err := s.platformRepo.GetConfig(projectID)
 	if err != nil {
@@ -69,14 +69,21 @@ func (s *RepositoryService) ListFromGitLab(projectID uint, page, perPage int) ([
 		return nil, 0, fmt.Errorf("failed to create GitLab client: %w", err)
 	}
 
-	// List projects
+	// List projects - 不设置 Membership 以返回所有用户有权访问的项目
 	opts := &gitlab.ListProjectsOptions{
 		ListOptions: gitlab.ListOptions{
 			Page:    page,
 			PerPage: perPage,
 		},
-		Membership: gitlab.Bool(true),
-		Archived:   gitlab.Bool(false),
+		// Membership: gitlab.Bool(true),  // 移除：限制了只返回用户参与的项目
+		Archived: gitlab.Bool(false),
+		OrderBy:  gitlab.Ptr("last_activity_at"),
+		Sort:     gitlab.Ptr("desc"),
+	}
+
+	// Add search filter only when provided
+	if search != "" {
+		opts.Search = gitlab.Ptr(search)
 	}
 
 	projects, resp, err := git.Projects.ListProjects(opts)
