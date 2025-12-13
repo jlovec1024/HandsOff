@@ -1,4 +1,40 @@
 services:
+  # HandsOff 应用服务（前端+后端）
+  app:
+    image: ghcr.io/jlovec1024/handsoff:latest
+    container_name: handsoff-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      # Docker环境下的Redis连接（使用容器名）
+      REDIS_URL: redis://:handsoff_redis_pwd@redis:6379/0
+    volumes:
+      - app_data:/app/data
+      - app_logs:/app/logs
+      - app_temp:/app/temp
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/api/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - handsoff-network
+
   # Redis 缓存和队列服务
   redis:
     image: redis:7-alpine
@@ -17,8 +53,13 @@ services:
     networks:
       - handsoff-network
 
-
 volumes:
+  app_data:
+    driver: local
+  app_logs:
+    driver: local
+  app_temp:
+    driver: local
   redis_data:
     driver: local
 

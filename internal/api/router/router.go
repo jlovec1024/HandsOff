@@ -1,12 +1,17 @@
 package router
 
 import (
+	"io/fs"
+	"net/http"
+	"strings"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/handsoff/handsoff/internal/api/handler"
 	"github.com/handsoff/handsoff/internal/api/middleware"
 	"github.com/handsoff/handsoff/internal/repository"
 	"github.com/handsoff/handsoff/internal/service"
+	"github.com/handsoff/handsoff/internal/web"
 	"github.com/handsoff/handsoff/pkg/config"
 	"github.com/handsoff/handsoff/pkg/logger"
 	"github.com/handsoff/handsoff/pkg/queue"
@@ -129,6 +134,34 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 	{
 		webhook.POST("", webhookHandler.HandleWebhook)
 	}
+
+	// Serve static files from embedded filesystem
+	staticFS, err := fs.Sub(web.StaticFiles, "dist")
+	if err != nil {
+		log.Fatal("Failed to create sub filesystem", "error", err)
+	}
+
+	// Serve static assets (CSS, JS, images)
+	assetsFS, err := fs.Sub(staticFS, "assets")
+	if err != nil {
+		log.Fatal("Failed to create assets filesystem", "error", err)
+	}
+	r.StaticFS("/assets", http.FS(assetsFS))
+
+	// SPA fallback - serve index.html for all non-API routes
+	r.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+			return
+		}
+		// Serve index.html for frontend routes
+		data, err := web.StaticFiles.ReadFile("dist/index.html")
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to load frontend")
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+	})
 
 	return r
 }

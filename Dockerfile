@@ -1,7 +1,24 @@
 # 多阶段构建 Dockerfile for HandsOff
 
 # ============================================
-# Stage 1: 构建阶段
+# Stage 1: 前端构建阶段
+# ============================================
+FROM node:20-alpine AS frontend
+
+WORKDIR /frontend
+
+# 复制前端依赖文件
+COPY web/package*.json ./
+RUN npm ci
+
+# 复制前端源代码
+COPY web/ ./
+
+# 构建前端静态文件
+RUN npm run build
+
+# ============================================
+# Stage 2: 后端构建阶段
 # ============================================
 FROM golang:1.22-alpine AS builder
 
@@ -17,6 +34,8 @@ RUN go mod download
 # 复制源代码
 COPY . .
 
+# 复制前端构建产物
+COPY --from=frontend /internal/web/dist ./internal/web/dist
 
 # 构建统一服务器 
 RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/handsoff-server ./cmd/server
