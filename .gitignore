@@ -87,3 +87,9 @@ config/config.yaml
 
 # Snow AI
 .snow/
+
+# Claude Code
+.claude/
+
+# Server binary
+server
