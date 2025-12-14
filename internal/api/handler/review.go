@@ -29,6 +29,14 @@ func NewReviewHandler(db *gorm.DB, log *logger.Logger) *ReviewHandler {
 // ListReviews lists all review results with pagination and filtering
 // GET /api/reviews?page=1&page_size=20&status=completed&repository_id=1
 func (h *ReviewHandler) ListReviews(c *gin.Context) {
+	// Get project ID for isolation
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error(ErrMsgProjectIDMissing)
+		RespondInternalError(c, ErrMsgInternalServer)
+		return
+	}
+
 	// Parse pagination parameters
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -45,23 +53,25 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 	repositoryIDStr := c.Query("repository_id")
 	author := c.Query("author")
 
-	// Build query
+	// Build query with project isolation via repository JOIN
 	query := h.db.Model(&model.ReviewResult{}).
+		Joins("JOIN repositories ON repositories.id = review_results.repository_id").
+		Where("repositories.project_id = ?", projectID).
 		Preload("Repository").
-		Preload("LLMModel.Provider")
+		Preload("LLMProvider")
 
 	// Apply filters
 	if status != "" {
-		query = query.Where("status = ?", status)
+		query = query.Where("review_results.status = ?", status)
 	}
 	if repositoryIDStr != "" {
 		repositoryID, _ := strconv.ParseUint(repositoryIDStr, 10, 32)
 		if repositoryID > 0 {
-			query = query.Where("repository_id = ?", repositoryID)
+			query = query.Where("review_results.repository_id = ?", repositoryID)
 		}
 	}
 	if author != "" {
-		query = query.Where("mr_author LIKE ?", "%"+author+"%")
+		query = query.Where("review_results.mr_author LIKE ?", "%"+author+"%")
 	}
 
 	// Get total count
@@ -75,7 +85,7 @@ func (h *ReviewHandler) ListReviews(c *gin.Context) {
 	// Get reviews with pagination
 	var reviews []model.ReviewResult
 	if err := query.
-		Order("created_at DESC").
+		Order("review_results.created_at DESC").
 		Limit(pageSize).
 		Offset(offset).
 		Find(&reviews).Error; err != nil {
@@ -230,10 +240,12 @@ func (h *ReviewHandler) parseLimitParam(c *gin.Context) int {
 func (h *ReviewHandler) fetchRecentReviews(projectID uint, limit int) ([]model.ReviewResult, error) {
 	var reviews []model.ReviewResult
 	err := h.db.
-		Where("project_id = ?", projectID).
-		Preload("Repository", "project_id = ?", projectID).
-		Preload("LLMModel.Provider", "project_id = ?", projectID).
-		Order("created_at DESC").
+		Model(&model.ReviewResult{}).
+		Joins("JOIN repositories ON repositories.id = review_results.repository_id").
+		Where("repositories.project_id = ?", projectID).
+		Preload("Repository").
+		Preload("LLMProvider").
+		Order("review_results.created_at DESC").
 		Limit(limit).
 		Find(&reviews).Error
 	
@@ -297,17 +309,18 @@ func (h *ReviewHandler) GetTrendData(c *gin.Context) {
 	startDate := time.Now().AddDate(0, 0, -days)
 
 	if err := h.db.Model(&model.ReviewResult{}).
-		Where("project_id = ?", projectID).
-		Where("created_at >= ?", startDate).
-		Where("status = ?", "completed").
+		Joins("JOIN repositories ON repositories.id = review_results.repository_id").
+		Where("repositories.project_id = ?", projectID).
+		Where("review_results.created_at >= ?", startDate).
+		Where("review_results.status = ?", "completed").
 		Select(`
-			DATE(created_at) as date,
+			DATE(review_results.created_at) as date,
 			COUNT(*) as review_count,
-			AVG(score) as avg_score,
-			COUNT(*) as total_issues,
-			SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as critical_issues
-		`, "completed").
-		Group("DATE(created_at)").
+			AVG(review_results.score) as avg_score,
+			SUM(review_results.issues_found) as total_issues,
+			SUM(review_results.critical_issues_count) as critical_issues
+		`).
+		Group("DATE(review_results.created_at)").
 		Order("date ASC").
 		Find(&trends).Error; err != nil {
 		h.log.Error("Failed to fetch trend data", "error", err)
@@ -315,5 +328,157 @@ func (h *ReviewHandler) GetTrendData(c *gin.Context) {
 		return
 	}
 
+	// Return empty array instead of null for frontend compatibility
+	if trends == nil {
+		trends = []DailyStats{}
+	}
+
 	c.JSON(http.StatusOK, trends)
+}
+
+// GetDashboardTokenUsage returns token consumption statistics for dashboard
+// GET /api/dashboard/token-usage?days=30
+func (h *ReviewHandler) GetDashboardTokenUsage(c *gin.Context) {
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error(ErrMsgProjectIDMissing)
+		RespondInternalError(c, ErrMsgInternalServer)
+		return
+	}
+
+	days := h.parseDaysParam(c)
+	startDate := time.Now().AddDate(0, 0, -days)
+	endDate := time.Now()
+
+	usageService := service.NewUsageService(h.db)
+
+	// Get overall stats
+	stats, err := usageService.GetProjectTokenStats(projectID, startDate, endDate)
+	if err != nil {
+		h.log.Error("Failed to get token stats", "error", err)
+		RespondInternalError(c, "Failed to fetch token statistics")
+		return
+	}
+
+	// Get top repositories - return error instead of swallowing
+	topRepos, err := usageService.GetTopRepositoriesByTokens(projectID, 5, startDate, endDate)
+	if err != nil {
+		h.log.Error("Failed to get top repositories", "error", err)
+		RespondInternalError(c, "Failed to fetch top repositories")
+		return
+	}
+
+	// Get daily trend - return error instead of swallowing
+	dailyStats, err := usageService.GetDailyTokenStats(projectID, days)
+	if err != nil {
+		h.log.Error("Failed to get daily stats", "error", err)
+		RespondInternalError(c, "Failed to fetch daily statistics")
+		return
+	}
+
+	RespondSuccess(c, gin.H{
+		"summary":          stats,
+		"top_repositories": topRepos,
+		"daily_trend":      dailyStats,
+	})
+}
+
+// GetRepositoryTokenUsage returns token consumption for a specific repository
+// GET /api/repositories/:id/token-usage?days=30
+func (h *ReviewHandler) GetRepositoryTokenUsage(c *gin.Context) {
+	idStr := c.Param("id")
+	repositoryID, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid repository ID"})
+		return
+	}
+
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error(ErrMsgProjectIDMissing)
+		RespondInternalError(c, ErrMsgInternalServer)
+		return
+	}
+
+	// Verify repository belongs to project
+	var repo model.Repository
+	if err := h.db.Where("id = ? AND project_id = ?", repositoryID, projectID).First(&repo).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Repository not found"})
+		return
+	}
+
+	days := h.parseDaysParam(c)
+	startDate := time.Now().AddDate(0, 0, -days)
+	endDate := time.Now()
+
+	var stats struct {
+		TotalCalls       int64   `json:"total_calls"`
+		SuccessfulCalls  int64   `json:"successful_calls"`
+		FailedCalls      int64   `json:"failed_calls"`
+		TotalTokens      int64   `json:"total_tokens"`
+		PromptTokens     int64   `json:"prompt_tokens"`
+		CompletionTokens int64   `json:"completion_tokens"`
+		AvgDurationMs    float64 `json:"avg_duration_ms"`
+		SuccessRate      float64 `json:"success_rate"`
+	}
+
+	err = h.db.Model(&model.LLMUsageLog{}).
+		Where("repository_id = ? AND created_at >= ? AND created_at <= ?", repositoryID, startDate, endDate).
+		Select(`
+			COUNT(*) as total_calls,
+			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful_calls,
+			SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failed_calls,
+			COALESCE(SUM(total_tokens), 0) as total_tokens,
+			COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+			COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
+		`).
+		Scan(&stats).Error
+
+	if err != nil {
+		h.log.Error("Failed to get repository token stats", "error", err, "repository_id", repositoryID)
+		RespondInternalError(c, "Failed to fetch token statistics")
+		return
+	}
+
+	if stats.TotalCalls > 0 {
+		stats.SuccessRate = float64(stats.SuccessfulCalls) / float64(stats.TotalCalls) * 100
+	}
+
+	RespondSuccess(c, stats)
+}
+
+// GetReviewUsageLogs returns all LLM API call logs for a specific review
+// GET /api/reviews/:id/usage-logs
+func (h *ReviewHandler) GetReviewUsageLogs(c *gin.Context) {
+	idStr := c.Param("id")
+	reviewID, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid review ID"})
+		return
+	}
+
+	projectID, ok := getProjectID(c)
+	if !ok {
+		h.log.Error(ErrMsgProjectIDMissing)
+		RespondInternalError(c, ErrMsgInternalServer)
+		return
+	}
+
+	// Verify review belongs to project
+	var review model.ReviewResult
+	if err := h.db.Where("id = ? AND project_id = ?", reviewID, projectID).First(&review).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Review not found"})
+		return
+	}
+
+	usageService := service.NewUsageService(h.db)
+	logs, err := usageService.GetUsageLogsByReview(uint(reviewID))
+	if err != nil {
+		h.log.Error("Failed to get usage logs", "error", err, "review_id", reviewID)
+		RespondInternalError(c, "Failed to fetch usage logs")
+		return
+	}
+
+	RespondSuccess(c, logs)
 }

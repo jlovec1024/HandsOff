@@ -4,6 +4,7 @@ import Login from "../pages/Login";
 import Dashboard from "../pages/Dashboard";
 import Settings from "../pages/Settings";
 import RepositoryList from "../pages/Repository/List";
+import { ReviewList, ReviewDetail } from "../pages/Review";
 import MainLayout from "../components/Layout/MainLayout";
 
 // Protected route wrapper
@@ -42,15 +43,14 @@ export const router = createBrowserRouter([
         path: "repositories",
         element: <RepositoryList />,
       },
-      // Week 5: Review routes
-      // {
-      //   path: 'reviews',
-      //   element: <ReviewList />,
-      // },
-      // {
-      //   path: 'reviews/:id',
-      //   element: <ReviewDetail />,
-      // },
+      {
+        path: "reviews",
+        element: <ReviewList />,
+      },
+      {
+        path: "reviews/:id",
+        element: <ReviewDetail />,
+      },
     ],
   },
 ]);

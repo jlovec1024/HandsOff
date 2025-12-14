@@ -209,6 +209,13 @@ func (c *OpenAICompatibleClient) Review(req ReviewRequest) (*ReviewResponse, err
 	reviewResp.ModelUsed = apiResp.Model
 	reviewResp.TokensUsed = apiResp.Usage.TotalTokens
 	reviewResp.Duration = time.Since(start)
+
+	// Fill detailed token usage for operations analytics
+	reviewResp.TokenUsage = TokenUsage{
+		PromptTokens:     apiResp.Usage.PromptTokens,
+		CompletionTokens: apiResp.Usage.CompletionTokens,
+		TotalTokens:      apiResp.Usage.TotalTokens,
+	}
 	
 	totalDuration := time.Since(start)
 	

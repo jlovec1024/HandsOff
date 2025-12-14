@@ -117,16 +117,19 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 		protected.POST("/repositories/:id/webhook/test", repositoryHandler.TestWebhook)
 		protected.PUT("/repositories/:id/webhook", repositoryHandler.RecreateWebhook)
 		protected.GET("/repositories/:id/statistics", reviewHandler.GetRepositoryStatistics)
+		protected.GET("/repositories/:id/token-usage", reviewHandler.GetRepositoryTokenUsage)
 
 		// Review routes
 		protected.GET("/reviews", reviewHandler.ListReviews)
 		protected.GET("/reviews/:id", reviewHandler.GetReview)
 		protected.GET("/reviews/:id/statistics", reviewHandler.GetReviewStatistics)
+		protected.GET("/reviews/:id/usage-logs", reviewHandler.GetReviewUsageLogs)
 
 		// Dashboard routes
 		protected.GET("/dashboard/statistics", reviewHandler.GetDashboardStatistics)
 		protected.GET("/dashboard/recent", reviewHandler.GetRecentReviews)
 		protected.GET("/dashboard/trends", reviewHandler.GetTrendData)
+		protected.GET("/dashboard/token-usage", reviewHandler.GetDashboardTokenUsage)
 	}
 
 	// Webhook routes (public, but with signature verification)

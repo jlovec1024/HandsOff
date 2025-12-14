@@ -37,6 +37,12 @@ type ReviewResult struct {
 	PerformanceIssuesCount int `gorm:"default:0" json:"performance_issues_count"` // Number of performance issues
 	QualityIssuesCount     int `gorm:"default:0" json:"quality_issues_count"`      // Number of quality issues
 
+	// Token Usage Summary (denormalized for fast access, source of truth is llm_usage_logs)
+	PromptTokens     int   `gorm:"default:0" json:"prompt_tokens"`
+	CompletionTokens int   `gorm:"default:0" json:"completion_tokens"`
+	TotalTokens      int   `gorm:"default:0;index" json:"total_tokens"`
+	LLMDurationMs    int64 `gorm:"default:0" json:"llm_duration_ms"` // LLM API call duration in milliseconds
+
 	// Relationships
 	Repository     *Repository      `gorm:"foreignKey:RepositoryID" json:"repository,omitempty"`
 	LLMProvider    *LLMProvider     `gorm:"foreignKey:LLMProviderID" json:"llm_provider,omitempty"`

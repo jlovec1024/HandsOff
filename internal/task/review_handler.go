@@ -58,9 +58,14 @@ func (h *ReviewHandler) HandleCodeReview(ctx context.Context, t *asynq.Task) err
 	// Step 3: Perform LLM code review
 	reviewResp, err := h.callLLMReview(reviewResult, diff)
 	if err != nil {
+		// Log failed usage even on error (tokens may have been consumed)
+		h.logUsage(reviewResult, nil, err)
 		h.markReviewFailed(reviewResult.ID, fmt.Sprintf("LLM review failed: %v", err))
 		return err
 	}
+
+	// Step 3.5: Log successful LLM usage for operations analytics
+	h.logUsage(reviewResult, reviewResp, nil)
 
 	// Step 4: Save review results to database
 	if err := h.saveReviewResults(reviewResult, reviewResp); err != nil {
@@ -374,4 +379,60 @@ func (h *ReviewHandler) getPromptTemplate(review *model.ReviewResult) string {
 	// 3. Fallback to hardcoded default
 	h.log.Info("Using default hardcoded prompt")
 	return llm.GetDefaultPrompt()
+}
+
+// logUsage logs LLM API usage to the database for operations analytics
+// This function is best-effort - it won't fail the review if logging fails
+func (h *ReviewHandler) logUsage(review *model.ReviewResult, resp *llm.ReviewResponse, apiErr error) {
+	usageSvc := service.NewUsageService(h.db)
+
+	// Build usage context from review
+	ctx := service.UsageContext{
+		ReviewResultID: &review.ID,
+		RepositoryID:   review.RepositoryID,
+		ProjectID:      review.Repository.ProjectID,
+		LLMProviderID:  review.LLMProviderID,
+		ModelName:      review.LLMProvider.Model,
+		RequestType:    model.UsageTypeCodeReview,
+	}
+
+	// Build metrics based on success or failure
+	var metrics service.UsageMetrics
+
+	if apiErr != nil {
+		// Failed request
+		metrics = service.UsageMetrics{
+			Status:   model.UsageStatusFailed,
+			ErrorMsg: apiErr.Error(),
+		}
+	} else if resp != nil {
+		// Successful request
+		metrics = service.UsageMetrics{
+			Status:           model.UsageStatusSuccess,
+			PromptTokens:     resp.TokenUsage.PromptTokens,
+			CompletionTokens: resp.TokenUsage.CompletionTokens,
+			TotalTokens:      resp.TokenUsage.TotalTokens,
+			DurationMs:       resp.Duration.Milliseconds(),
+		}
+	}
+
+	// Log usage (best-effort, don't fail the review)
+	if _, err := usageSvc.LogUsage(ctx, metrics); err != nil {
+		h.log.Error("Failed to log LLM usage", "error", err, "review_id", review.ID)
+		// Don't return error - usage logging is non-critical
+	}
+
+	// Update denormalized token fields in ReviewResult (if successful)
+	if resp != nil {
+		if err := usageSvc.UpdateReviewTokens(
+			review.ID,
+			resp.TokenUsage.PromptTokens,
+			resp.TokenUsage.CompletionTokens,
+			resp.TokenUsage.TotalTokens,
+			resp.Duration.Milliseconds(),
+		); err != nil {
+			h.log.Error("Failed to update review tokens", "error", err, "review_id", review.ID)
+			// Don't return error - this is also non-critical
+		}
+	}
 }

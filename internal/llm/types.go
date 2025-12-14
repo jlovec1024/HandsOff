@@ -18,8 +18,18 @@ type ReviewResponse struct {
 	Suggestions []FixSuggestion  `json:"suggestions"`  // List of fix suggestions
 	RawResponse string           `json:"-"`            // Original LLM response
 	ModelUsed   string           `json:"model_used"`   // Model that generated this
-	TokensUsed  int              `json:"tokens_used"`  // Tokens consumed
+	TokensUsed  int              `json:"tokens_used"`  // Tokens consumed (deprecated, use TokenUsage)
 	Duration    time.Duration    `json:"duration"`     // Time taken
+
+	// Detailed Token Usage (for operations analytics)
+	TokenUsage TokenUsage `json:"token_usage"`
+}
+
+// TokenUsage represents detailed token consumption from LLM API
+type TokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 // FixSuggestion represents a single code fix suggestion

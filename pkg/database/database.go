@@ -65,5 +65,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.WebhookEvent{}, // Webhook event records
 		&model.ReviewResult{},
 		&model.FixSuggestion{},
+		&model.LLMUsageLog{},  // LLM API usage logs for token tracking
 	)
 }
