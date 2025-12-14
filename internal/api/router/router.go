@@ -75,6 +75,7 @@ func Setup(db *gorm.DB, cfg *config.Config, log *logger.Logger) *gin.Engine {
 	{
 		public.POST("/auth/login", authHandler.Login)
 		public.GET("/health", healthHandler.Check)
+		public.HEAD("/health", healthHandler.Check)
 	}
 	// Protected routes (require authentication)
 	protected := r.Group("/api")
