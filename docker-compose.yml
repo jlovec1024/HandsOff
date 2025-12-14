@@ -1,7 +1,7 @@
 services:
   # HandsOff 应用服务（前端+后端）
   app:
-    image: ghcr.io/jlovec1024/handsoff:v0.2.0
+    image: ghcr.io/jlovec1024/handsoff:v0.2.1
     container_name: handsoff-app
     restart: unless-stopped
     ports:
