@@ -1,6 +1,6 @@
 package webhook
 
-import "time"
+// No external imports needed - GitLabTime is in same package
 
 // GitLabWebhookEvent represents the base GitLab webhook event
 type GitLabWebhookEvent struct {
@@ -57,10 +57,10 @@ type GitLabMergeRequestAttributes struct {
 	MergeStatus     string     `json:"merge_status"`
 	URL             string     `json:"url"`
 	Action          string     `json:"action"` // open, update, merge, close, reopen
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	MergedAt        *time.Time `json:"merged_at"`
-	ClosedAt        *time.Time `json:"closed_at"`
+	CreatedAt       GitLabTime  `json:"created_at"`
+	UpdatedAt       GitLabTime  `json:"updated_at"`
+	MergedAt        *GitLabTime `json:"merged_at"`
+	ClosedAt        *GitLabTime `json:"closed_at"`
 	LastCommit      GitLabCommit `json:"last_commit"`
 }
 
@@ -68,7 +68,7 @@ type GitLabMergeRequestAttributes struct {
 type GitLabCommit struct {
 	ID        string    `json:"id"`
 	Message   string    `json:"message"`
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp GitLabTime `json:"timestamp"`
 	URL       string    `json:"url"`
 	Author    GitLabCommitAuthor `json:"author"`
 }
