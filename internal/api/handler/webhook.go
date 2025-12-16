@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,24 @@ import (
 	"github.com/hibiken/asynq"
 	"gorm.io/gorm"
 )
+
+// WebhookError represents an error with HTTP status code for centralized handling
+type WebhookError struct {
+	StatusCode int
+	Message    string
+	Err        error
+}
+
+func (e *WebhookError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %v", e.Message, e.Err)
+	}
+	return e.Message
+}
+
+func (e *WebhookError) Unwrap() error {
+	return e.Err
+}
 
 // WebhookHandler handles webhook requests
 type WebhookHandler struct {
@@ -34,30 +53,65 @@ func NewWebhookHandler(db *gorm.DB, log *logger.Logger, queueClient *queue.Clien
 	}
 }
 
+// handleWebhookError centralized error response handler
+func (h *WebhookHandler) handleWebhookError(c *gin.Context, err error) {
+	var we *WebhookError
+	if errors.As(err, &we) {
+		c.JSON(we.StatusCode, gin.H{"message": we.Message})
+	} else {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+	}
+}
+
 // HandleGitLab handles GitLab webhook events
-// REFACTORED: Split into 4 small functions with single responsibility
+// REFACTORED: Centralized error handling with clean separation:
+// - (nil, nil) = event ignored (200 OK)
+// - (nil, error) = real error (4xx/5xx)
+// - (result, nil) = success, continue processing
 func (h *WebhookHandler) HandleGitLab(c *gin.Context) {
-	// Step 1: Parse and validate webhook event
-	mrEvent, err := h.parseAndValidateWebhook(c)
+	// Step 0: Read body once (needed for parsing)
+	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		return // Error already handled internally
+		h.log.Error("Failed to read webhook body", "error", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+		return
+	}
+
+	// Step 1: Parse and validate webhook event
+	mrEvent, err := h.parseAndValidateWebhook(body)
+	if err != nil {
+		h.handleWebhookError(c, err)
+		return
+	}
+	if mrEvent == nil {
+		// Event ignored (not MR event or doesn't trigger review)
+		c.JSON(http.StatusOK, gin.H{"message": "Event ignored"})
+		return
 	}
 
 	// Step 2: Find and validate repository
 	repo, err := h.findAndValidateRepository(mrEvent)
 	if err != nil {
-		return // Error already handled internally
+		h.handleWebhookError(c, err)
+		return
+	}
+	if repo == nil {
+		// Repository not configured or no LLM - ignore silently
+		c.JSON(http.StatusOK, gin.H{"message": "Repository not configured for review"})
+		return
 	}
 
 	// Step 3: Create review result record
 	reviewID, err := h.createReviewRecord(repo, mrEvent)
 	if err != nil {
-		return // Error already handled internally
+		h.handleWebhookError(c, err)
+		return
 	}
 
 	// Step 4: Enqueue review task
 	if err := h.enqueueReviewTask(reviewID); err != nil {
-		return // Error already handled internally
+		h.handleWebhookError(c, err)
+		return
 	}
 
 	h.log.Info("Webhook processed successfully", 
@@ -72,34 +126,34 @@ func (h *WebhookHandler) HandleGitLab(c *gin.Context) {
 }
 
 // parseAndValidateWebhook parses and validates GitLab webhook event
-func (h *WebhookHandler) parseAndValidateWebhook(c *gin.Context) (*webhook.GitLabMergeRequestEvent, error) {
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		h.log.Error("Failed to read webhook body", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
-		return nil, err
-	}
-
+// Returns (*event, nil) for success, (nil, nil) for ignored events, (nil, error) for errors
+// Does NOT touch gin.Context - caller handles all responses
+func (h *WebhookHandler) parseAndValidateWebhook(body []byte) (*webhook.GitLabMergeRequestEvent, error) {
 	// Check event type first (lightweight check)
 	var baseEvent webhook.GitLabWebhookEvent
 	if err := json.Unmarshal(body, &baseEvent); err != nil {
 		h.log.Error("Failed to parse webhook event", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid webhook payload"})
-		return nil, err
+		return nil, &WebhookError{
+			StatusCode: http.StatusBadRequest,
+			Message:    "Invalid webhook payload",
+			Err:        err,
+		}
 	}
 
 	if baseEvent.ObjectKind != "merge_request" {
 		h.log.Info("Ignoring non-merge-request event", "event_type", baseEvent.ObjectKind)
-		c.JSON(http.StatusOK, gin.H{"message": "Event type not supported"})
-		return nil, fmt.Errorf("unsupported event type: %s", baseEvent.ObjectKind)
+		return nil, nil // Not an error, just ignored
 	}
 
 	// Parse full MR event
 	var mrEvent webhook.GitLabMergeRequestEvent
 	if err := json.Unmarshal(body, &mrEvent); err != nil {
 		h.log.Error("Failed to parse MR event", "error", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid merge request payload"})
-		return nil, err
+		return nil, &WebhookError{
+			StatusCode: http.StatusBadRequest,
+			Message:    "Invalid merge request payload",
+			Err:        err,
+		}
 	}
 
 	if !mrEvent.ShouldTriggerReview() {
@@ -107,14 +161,15 @@ func (h *WebhookHandler) parseAndValidateWebhook(c *gin.Context) (*webhook.GitLa
 			"action", mrEvent.ObjectAttributes.Action,
 			"state", mrEvent.ObjectAttributes.State,
 			"mr_id", mrEvent.GetMRID())
-		c.JSON(http.StatusOK, gin.H{"message": "Event does not trigger review"})
-		return nil, fmt.Errorf("event does not trigger review")
+		return nil, nil // Not an error, just ignored
 	}
 
 	return &mrEvent, nil
 }
 
 // findAndValidateRepository finds repository and validates webhook signature
+// Returns (*repo, nil) for success, (nil, nil) for ignored, (nil, error) for errors
+// Does NOT touch gin.Context - caller handles all responses
 func (h *WebhookHandler) findAndValidateRepository(mrEvent *webhook.GitLabMergeRequestEvent) (*model.Repository, error) {
 	var repo model.Repository
 	err := h.db.Preload("LLMProvider").
@@ -125,13 +180,16 @@ func (h *WebhookHandler) findAndValidateRepository(mrEvent *webhook.GitLabMergeR
 		h.log.Warn("Repository not found or inactive", 
 			"project_id", mrEvent.GetProjectID(),
 			"mr_id", mrEvent.GetMRID())
-		return nil, fmt.Errorf("repository not found")
+		return nil, nil // Not an error, just ignored (repo not configured)
 	}
-
 
 	if err != nil {
 		h.log.Error("Failed to query repository", "error", err)
-		return nil, err
+		return nil, &WebhookError{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "Database error",
+			Err:        err,
+		}
 	}
 
 	// Validate webhook signature if configured
@@ -145,13 +203,14 @@ func (h *WebhookHandler) findAndValidateRepository(mrEvent *webhook.GitLabMergeR
 		h.log.Warn("No LLM model configured for repository", 
 			"repository_id", repo.ID,
 			"repository_name", repo.Name)
-		return nil, fmt.Errorf("no LLM model configured")
+		return nil, nil // Not an error, just ignored (no LLM configured)
 	}
 
 	return &repo, nil
 }
 
 // createReviewRecord creates a new review result record in database
+// Returns *WebhookError for centralized handling - does NOT touch gin.Context
 func (h *WebhookHandler) createReviewRecord(repo *model.Repository, mrEvent *webhook.GitLabMergeRequestEvent) (uint, error) {
 	// Use FirstOrCreate to ensure idempotency (prevent duplicate reviews for same MR)
 	reviewResult := model.ReviewResult{
@@ -176,7 +235,11 @@ func (h *WebhookHandler) createReviewRecord(repo *model.Repository, mrEvent *web
 
 	if err != nil {
 		h.log.Error("Failed to create or update review result", "error", err)
-		return 0, err
+		return 0, &WebhookError{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "Failed to create review record",
+			Err:        err,
+		}
 	}
 
 	h.log.Info("Review result record ensured", 
@@ -188,6 +251,7 @@ func (h *WebhookHandler) createReviewRecord(repo *model.Repository, mrEvent *web
 }
 
 // enqueueReviewTask enqueues async review task to Redis queue
+// Returns *WebhookError for centralized handling - does NOT touch gin.Context
 func (h *WebhookHandler) enqueueReviewTask(reviewID uint) error {
 	// REFACTORED: Only pass ReviewResultID instead of all MR fields
 	payload := task.CodeReviewPayload{
@@ -202,7 +266,11 @@ func (h *WebhookHandler) enqueueReviewTask(reviewID uint) error {
 			"status":        "failed",
 			"error_message": fmt.Sprintf("Failed to create task: %v", err),
 		})
-		return err
+		return &WebhookError{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "Failed to create task",
+			Err:        err,
+		}
 	}
 
 	taskInfo, err := h.queue.Enqueue(
@@ -218,7 +286,11 @@ func (h *WebhookHandler) enqueueReviewTask(reviewID uint) error {
 			"status":        "failed",
 			"error_message": fmt.Sprintf("Failed to enqueue task: %v", err),
 		})
-		return err
+		return &WebhookError{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "Failed to enqueue task",
+			Err:        err,
+		}
 	}
 
 	h.log.Info("Enqueued code review task", 
@@ -228,6 +300,7 @@ func (h *WebhookHandler) enqueueReviewTask(reviewID uint) error {
 
 	return nil
 }
+
 
 // HandleWebhook is a generic webhook handler that routes to platform-specific handlers
 func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
